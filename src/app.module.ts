@@ -18,12 +18,9 @@ import { PrintOrder } from './order/print-order.entity';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
-        url: config.get<string>(
-          'POSTGRES_URL',
-          'postgresql://postgres:root@localhost:5432/oneprint',
-        ),
+        url: process.env.POSTGRES_URL,
         entities: [User, PrintOrder],
-        synchronize: config.get<string>('NODE_ENV', 'development') !== 'production',
+         synchronize: true,
         logging: config.get<string>('TYPEORM_LOGGING') === 'true',
       }),
     }),
