@@ -1,5 +1,3 @@
-import * as dotenv from 'dotenv';
-import * as path from 'path';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
@@ -7,14 +5,6 @@ import compression from 'compression';
 import helmet from 'helmet';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-
-dotenv.config({
-  path: path.resolve(
-    __dirname,
-    '..',
-    `.env.${process.env.NODE_ENV || 'development'}`,
-  ),
-});
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

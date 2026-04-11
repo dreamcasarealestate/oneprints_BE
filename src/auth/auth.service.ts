@@ -70,11 +70,13 @@ export class AuthService {
     lastName: string;
     username: string;
     phoneNumber: string;
+    branchId?: string | null;
   }) {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       userKind: user.userKind,
+      branchId: user.branchId ?? null,
     };
     const access_token = this.jwtService.sign(payload);
     return {
@@ -87,6 +89,7 @@ export class AuthService {
         lastName: user.lastName,
         username: user.username,
         phoneNumber: user.phoneNumber,
+        branchId: user.branchId ?? null,
       },
     };
   }

@@ -88,6 +88,7 @@ export class UsersService {
         'email',
         'phoneNumber',
         'userKind',
+        'branchId',
         'passwordHash',
         'createdAt',
         'updatedAt',
@@ -252,18 +253,33 @@ export class UsersService {
     }
   }
 
+  private isElevatedAdmin(kind: UserKind): boolean {
+    return kind === UserKind.ADMIN || kind === UserKind.SUPER_ADMIN;
+  }
+
+  private async countElevatedAdmins(): Promise<number> {
+    const admins = await this.countByKind(UserKind.ADMIN);
+    const superAdmins = await this.countByKind(UserKind.SUPER_ADMIN);
+    return admins + superAdmins;
+  }
+
   private async ensureAdminStillExists(
     currentKind: UserKind,
     nextKind: UserKind | null,
   ) {
-    if (currentKind !== UserKind.ADMIN || nextKind === UserKind.ADMIN) {
+    if (!this.isElevatedAdmin(currentKind)) {
+      return;
+    }
+    const nextIsElevated =
+      nextKind !== null && this.isElevatedAdmin(nextKind);
+    if (nextIsElevated) {
       return;
     }
 
-    const adminCount = await this.countByKind(UserKind.ADMIN);
-    if (adminCount <= 1) {
+    const elevatedCount = await this.countElevatedAdmins();
+    if (elevatedCount <= 1) {
       throw new BadRequestException(
-        'At least one admin account must remain in the system',
+        'At least one super admin or admin account must remain in the system',
       );
     }
   }

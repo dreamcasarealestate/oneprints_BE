@@ -1,0 +1,58 @@
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+import { Order } from './order.entity';
+import { Product } from '../catalogue/product.entity';
+
+@Entity('order_items')
+export class OrderItem {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'uuid' })
+  orderId: string;
+
+  @ManyToOne(() => Order, (o) => o.items, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'orderId' })
+  order: Order;
+
+  @Column({ type: 'uuid', nullable: true })
+  productId: string | null;
+
+  @ManyToOne(() => Product, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'productId' })
+  product: Product | null;
+
+  @Column()
+  productName: string;
+
+  @Column({ default: 1 })
+  quantity: number;
+
+  @Column('double precision')
+  unitPrice: number;
+
+  @Column({ nullable: true })
+  size: string | null;
+
+  @Column({ nullable: true })
+  color: string | null;
+
+  @Column('jsonb', { nullable: true })
+  designData: Record<string, unknown> | null;
+
+  @Column('jsonb', { nullable: true })
+  measurements: Record<string, unknown> | null;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+}
