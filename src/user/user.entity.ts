@@ -7,7 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { UserKind } from './user-kind.enum';
-import { PrintOrder } from '../order/print-order.entity';
+import { Order } from '../order/order.entity';
 
 @Entity('users')
 export class User {
@@ -29,14 +29,18 @@ export class User {
   @Column()
   phoneNumber: string;
 
-  @Column({ type: 'varchar', length: 16, default: UserKind.USER })
+  @Column({ type: 'varchar', length: 32, default: UserKind.USER })
   userKind: UserKind;
+
+  /** Set for branch_manager; null for global operational roles */
+  @Column({ type: 'uuid', nullable: true })
+  branchId: string | null;
 
   @Column({ select: false })
   passwordHash: string;
 
-  @OneToMany(() => PrintOrder, (o) => o.user)
-  orders: PrintOrder[];
+  @OneToMany(() => Order, (o) => o.user)
+  orders: Order[];
 
   @CreateDateColumn()
   createdAt: Date;

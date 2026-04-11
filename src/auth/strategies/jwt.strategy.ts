@@ -8,6 +8,7 @@ export type JwtPayload = {
   sub: string;
   email: string;
   userKind: string;
+  branchId?: string | null;
 };
 
 @Injectable()

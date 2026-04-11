@@ -1,33 +1,55 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './user/users.module';
 import { OrdersModule } from './order/orders.module';
 import { DatabaseModule } from './database/database.module';
-import { User } from './user/user.entity';
-import { PrintOrder } from './order/print-order.entity';
+import { BranchModule } from './branch/branch.module';
+import { CatalogueModule } from './catalogue/catalogue.module';
+import { DesignerModule } from './designer/designer.module';
+import { NotificationsModule } from './notification/notifications.module';
+import { DesignsModule } from './design/designs.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: [`.env.${process.env.NODE_ENV || 'development'}`, '.env'],
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        url: process.env.POSTGRES_URL,
-        entities: [User, PrintOrder],
-         synchronize: true,
-        logging: config.get<string>('TYPEORM_LOGGING') === 'true',
-      }),
+      useFactory: (config: ConfigService) => {
+        const postgresUrl = config.get<string>('POSTGRES_URL');
+
+        if (!postgresUrl) {
+          throw new Error(
+            'Missing POSTGRES_URL. Add it to .env.development or your active env file.',
+          );
+        }
+
+        return {
+          type: 'postgres' as const,
+          url: postgresUrl,
+          entities: [join(__dirname, '**', '*.entity{.ts,.js}')],
+          synchronize: true,
+          logging: config.get<string>('TYPEORM_LOGGING') === 'true',
+        };
+      },
     }),
     UsersModule,
     AuthModule,
     OrdersModule,
     DatabaseModule,
+    BranchModule,
+    CatalogueModule,
+    DesignerModule,
+    NotificationsModule,
+    DesignsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
