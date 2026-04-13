@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  IsUUID,
   MinLength,
 } from 'class-validator';
 import { UserKind } from '../user-kind.enum';
@@ -46,4 +47,12 @@ export class CreateUserDto {
   @IsOptional()
   @IsEnum(UserKind)
   userKind?: UserKind;
+
+  @ApiPropertyOptional({
+    description:
+      'Branch UUID. Required for super_admin / ops_head (from admin branch switcher). Ignored for branch-locked operators — their session branch is used.',
+  })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }

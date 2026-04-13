@@ -6,20 +6,17 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BranchesService } from './branch.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserKind } from '../user/user-kind.enum';
+import { BRANCH_CRUD_ROLES } from '../user/roles.util';
 
 @ApiTags('Branches')
 @Controller('branches')
@@ -27,7 +24,9 @@ export class BranchesController {
   constructor(private readonly branchesService: BranchesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List active branches (public, for checkout UI)' })
+  @ApiOperation({
+    summary: 'List active branches (public, for checkout)',
+  })
   findActive() {
     return this.branchesService.findActivePublic();
   }
@@ -35,8 +34,8 @@ export class BranchesController {
   @Get('admin')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth('access-token')
-  @Roles(UserKind.SUPER_ADMIN, UserKind.ADMIN, UserKind.OPS_HEAD)
-  @ApiOperation({ summary: 'Full branch list for operations / super admin' })
+  @Roles(...BRANCH_CRUD_ROLES)
+  @ApiOperation({ summary: 'Full branch list (super admin)' })
   findAllAdmin() {
     return this.branchesService.findAllForAdmin();
   }
@@ -44,8 +43,8 @@ export class BranchesController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth('access-token')
-  @Roles(UserKind.SUPER_ADMIN, UserKind.ADMIN)
-  @ApiOperation({ summary: 'Create branch' })
+  @Roles(...BRANCH_CRUD_ROLES)
+  @ApiOperation({ summary: 'Create branch (super admin)' })
   create(@Body() dto: CreateBranchDto) {
     return this.branchesService.create(dto);
   }
@@ -53,9 +52,21 @@ export class BranchesController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth('access-token')
-  @Roles(UserKind.SUPER_ADMIN, UserKind.ADMIN)
-  @ApiOperation({ summary: 'Update branch' })
-  update(
+  @Roles(...BRANCH_CRUD_ROLES)
+  @ApiOperation({ summary: 'Patch branch (super admin)' })
+  updatePatch(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateBranchDto,
+  ) {
+    return this.branchesService.update(id, dto);
+  }
+
+  @Put(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(...BRANCH_CRUD_ROLES)
+  @ApiOperation({ summary: 'Replace branch (super admin)' })
+  updatePut(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateBranchDto,
   ) {

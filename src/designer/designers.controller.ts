@@ -38,6 +38,17 @@ export class DesignersController {
     return this.designers.listApproved(search, specialization);
   }
 
+  @Get('onboarding/me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary:
+      'Designer onboarding: linked profile or latest application for your email',
+  })
+  onboardingMe(@CurrentUser() user: User) {
+    return this.designers.getOnboardingContextForUser(user);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Designer profile' })
   async getOne(@Param('id', new ParseUUIDPipe()) id: string) {

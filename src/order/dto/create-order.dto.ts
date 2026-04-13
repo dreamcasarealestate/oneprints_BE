@@ -91,6 +91,11 @@ export class OrderLineItemInputDto {
   @IsOptional()
   @IsObject()
   measurements?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  customizationData?: Record<string, unknown>;
 }
 
 export class CreateOrderDto {

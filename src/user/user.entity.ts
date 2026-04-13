@@ -2,12 +2,15 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { UserKind } from './user-kind.enum';
 import { Order } from '../order/order.entity';
+import { Role } from './role.entity';
 
 @Entity('users')
 export class User {
@@ -32,7 +35,18 @@ export class User {
   @Column({ type: 'varchar', length: 32, default: UserKind.USER })
   userKind: UserKind;
 
-  /** Set for branch_manager; null for global operational roles */
+  @Column({ type: 'uuid', nullable: true })
+  roleId: string | null;
+
+  @ManyToOne(() => Role, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'roleId' })
+  role: Role | null;
+
+  /** Per-user notification prefs: muted types, digest, push, etc. */
+  @Column('jsonb', { nullable: true })
+  notificationPreferences: Record<string, unknown> | null;
+
+  /** Set for branch-scoped roles; null for global operational roles */
   @Column({ type: 'uuid', nullable: true })
   branchId: string | null;
 

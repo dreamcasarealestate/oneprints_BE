@@ -29,6 +29,12 @@ export class DesignsController {
     return this.designs.upsert(user.id, dto);
   }
 
+  @Post('remove-background')
+  @ApiOperation({ summary: 'AI background removal on uploaded image (stub)' })
+  removeBackground() {
+    return this.designs.removeBackgroundStub();
+  }
+
   @Get()
   @ApiOperation({ summary: 'List saved designs for current user' })
   list(@CurrentUser() user: User) {
@@ -36,7 +42,7 @@ export class DesignsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Load design' })
+  @ApiOperation({ summary: 'Load design (JSON + preview URL)' })
   getOne(
     @CurrentUser() user: User,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -60,11 +66,5 @@ export class DesignsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.designs.exportPdfStub(id, user.id);
-  }
-
-  @Post('remove-background')
-  @ApiOperation({ summary: 'AI background removal (stub)' })
-  removeBackground() {
-    return this.designs.removeBackgroundStub();
   }
 }

@@ -8,6 +8,7 @@ import { DesignersService } from './designers.service';
 import { DesignersController } from './designers.controller';
 import { DesignerJobsController } from './designer-jobs.controller';
 import { NotificationsModule } from '../notification/notifications.module';
+import { UsersModule } from '../user/users.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { NotificationsModule } from '../notification/notifications.module';
       DesignerProof,
     ]),
     NotificationsModule,
+    UsersModule,
   ],
   controllers: [DesignersController, DesignerJobsController],
   providers: [DesignersService],

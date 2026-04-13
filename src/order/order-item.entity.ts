@@ -50,6 +50,9 @@ export class OrderItem {
   @Column('jsonb', { nullable: true })
   measurements: Record<string, unknown> | null;
 
+  @Column('jsonb', { nullable: true })
+  customizationData: Record<string, unknown> | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

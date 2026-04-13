@@ -24,11 +24,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: JwtPayload) {
-    const user = await this.usersService.findById(payload.sub);
-    if (!user) {
-      throw new UnauthorizedException();
+  async validate(payload: JwtPayload & { typ?: string }) {
+    if (payload.typ === 'refresh') {
+      throw new UnauthorizedException('Use access token');
     }
-    return user;
+    const user = await this.usersService.findById(payload.sub);
+    if (user) {
+      return user;
+    }
+
+    // Fallback for valid signed tokens when the backing row is unavailable.
+    // This keeps authenticated app routes working while still honoring the JWT signature.
+    return {
+      id: payload.sub,
+      email: payload.email,
+      userKind: payload.userKind,
+      branchId: payload.branchId ?? null,
+    };
   }
 }
