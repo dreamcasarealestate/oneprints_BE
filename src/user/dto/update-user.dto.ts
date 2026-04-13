@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  IsUUID,
   MinLength,
 } from 'class-validator';
 import { UserKind } from '../user-kind.enum';
@@ -47,4 +48,12 @@ export class UpdateUserDto {
   @IsOptional()
   @IsEnum(UserKind)
   userKind?: UserKind;
+
+  @ApiPropertyOptional({
+    description:
+      'Reassign branch (super_admin / ops_head only). Set null to clear.',
+  })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string | null;
 }

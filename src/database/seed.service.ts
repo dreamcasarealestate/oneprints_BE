@@ -11,6 +11,9 @@ export class SeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    await this.users.ensureRoleRows();
+    await this.users.normalizeLegacyUserKinds();
+
     const adminEmail = this.config.get<string>('SEED_ADMIN_EMAIL', 'admin@oneprint.local');
     const adminPassword = this.config.get<string>('SEED_ADMIN_PASSWORD', 'Admin12345!');
     const adminHash = await bcrypt.hash(adminPassword, 10);
@@ -20,5 +23,7 @@ export class SeedService implements OnModuleInit {
     const staffPassword = this.config.get<string>('SEED_STAFF_PASSWORD', 'Staff12345!');
     const staffHash = await bcrypt.hash(staffPassword, 10);
     await this.users.ensureSeedStaff(staffEmail, staffHash);
+
+    await this.users.syncAllUserRoleIds();
   }
 }

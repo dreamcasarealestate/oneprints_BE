@@ -18,6 +18,7 @@ import { DesignerProofDto } from './dto/designer-proof.dto';
 import { DesignerMessageDto } from './dto/designer-message.dto';
 import { User } from '../user/user.entity';
 import { NotificationsService } from '../notification/notifications.service';
+import { UsersService } from '../user/users.service';
 
 @Injectable()
 export class DesignersService {
@@ -31,6 +32,7 @@ export class DesignersService {
     @InjectRepository(DesignerProof)
     private readonly proofRepo: Repository<DesignerProof>,
     private readonly notifications: NotificationsService,
+    private readonly usersService: UsersService,
   ) {}
 
   apply(dto: ApplyDesignerDto) {
@@ -88,7 +90,34 @@ export class DesignersService {
     if (!d) throw new NotFoundException('Designer not found');
     d.status = 'approved';
     d.rejectionReason = null;
-    return this.designerRepo.save(d);
+    let saved = await this.designerRepo.save(d);
+
+    const user = await this.usersService.promoteCustomerToDesignerByEmail(
+      d.email,
+    );
+    if (user) {
+      saved.userId = user.id;
+      saved = await this.designerRepo.save(saved);
+    }
+    return saved;
+  }
+
+  /**
+   * Linked profile (post-approval) or latest application row for the user's email.
+   */
+  async getOnboardingContextForUser(user: User) {
+    const linked = await this.designerRepo.findOne({
+      where: { userId: user.id },
+    });
+    if (linked) {
+      return { linked: true as const, designer: linked };
+    }
+    const byEmail = await this.designerRepo
+      .createQueryBuilder('d')
+      .where('d.email = :email', { email: user.email.trim().toLowerCase() })
+      .orderBy('d.createdAt', 'DESC')
+      .getOne();
+    return { linked: false as const, designer: byEmail ?? null };
   }
 
   async rejectDesigner(id: string, dto: RejectDesignerDto) {

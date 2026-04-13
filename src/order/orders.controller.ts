@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -18,22 +19,32 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
+import { PaymentsService } from './payments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../user/user.entity';
 import { UserKind } from '../user/user-kind.enum';
+import {
+  isOrderCustomerRole,
+  isStaffOperationRole,
+  STAFF_OPERATION_ROLES,
+} from '../user/roles.util';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { DispatchOrderDto } from './dto/dispatch-order.dto';
 import { OrderReturnDto } from './dto/order-action.dto';
+import { CreatePaymentDto } from './dto/create-payment.dto';
 
 @Controller('orders')
 @ApiTags('Orders')
 @ApiBearerAuth('access-token')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly paymentsService: PaymentsService,
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard)
@@ -43,48 +54,61 @@ export class OrdersController {
     return this.ordersService.createForUser(user.id, dto);
   }
 
-  @Get('mine')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'List orders for the current customer' })
-  @ApiOkResponse({ description: 'Customer orders' })
-  mine(@CurrentUser() user: User) {
-    return this.ordersService.findMine(user.id);
-  }
-
   @Get()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(
-    UserKind.ADMIN,
-    UserKind.SUPER_ADMIN,
-    UserKind.OPS_HEAD,
-    UserKind.BRANCH_MANAGER,
-    UserKind.STAFF,
-  )
-  @ApiOperation({ summary: 'List orders (scoped by branch for branch managers)' })
-  @ApiOkResponse({ description: 'Orders for operations' })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'List orders (scoped by role)' })
+  @ApiOkResponse({ description: 'Customer: own orders; staff: branch/global' })
   findAll(@CurrentUser() user: User) {
-    return this.ordersService.findAllForStaff(user);
+    if (isOrderCustomerRole(user.userKind as UserKind)) {
+      return this.ordersService.findMine(user.id);
+    }
+    if (isStaffOperationRole(user.userKind as UserKind)) {
+      return this.ordersService.findAllForStaff(user);
+    }
+    throw new ForbiddenException();
   }
 
   @Get(':id/invoice')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Invoice metadata (PDF URL when integrated)' })
+  @ApiOperation({ summary: 'Invoice PDF metadata / download URL when wired' })
   invoice(
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: User,
   ) {
-    const isStaff = [
-      UserKind.ADMIN,
-      UserKind.SUPER_ADMIN,
-      UserKind.OPS_HEAD,
-      UserKind.BRANCH_MANAGER,
-      UserKind.STAFF,
-    ].includes(user.userKind as UserKind);
+    const isStaff = isStaffOperationRole(user.userKind as UserKind);
     return this.ordersService.invoiceStub(
       id,
       isStaff ? null : user.id,
       isStaff ? user : null,
     );
+  }
+
+  @Get(':id/payments')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Payment rows for an order (Razorpay refs, etc.)' })
+  listPayments(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ) {
+    const isStaff = isStaffOperationRole(user.userKind as UserKind);
+    return this.paymentsService.listForOrder(
+      id,
+      isStaff ? null : user.id,
+      isStaff ? user : null,
+    );
+  }
+
+  @Post(':id/payments')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...STAFF_OPERATION_ROLES)
+  @ApiOperation({ summary: 'Record a payment against an order (staff)' })
+  @ApiBody({ type: CreatePaymentDto })
+  recordPayment(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CreatePaymentDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.paymentsService.record(id, dto, null, user);
   }
 
   @Get(':id')
@@ -95,13 +119,7 @@ export class OrdersController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: User,
   ) {
-    const isStaff = [
-      UserKind.ADMIN,
-      UserKind.SUPER_ADMIN,
-      UserKind.OPS_HEAD,
-      UserKind.BRANCH_MANAGER,
-      UserKind.STAFF,
-    ].includes(user.userKind as UserKind);
+    const isStaff = isStaffOperationRole(user.userKind as UserKind);
     return this.ordersService.findOneForUser(
       id,
       isStaff ? null : user.id,
@@ -112,13 +130,7 @@ export class OrdersController {
   @Put(':id/status')
   @Patch(':id/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(
-    UserKind.ADMIN,
-    UserKind.SUPER_ADMIN,
-    UserKind.OPS_HEAD,
-    UserKind.BRANCH_MANAGER,
-    UserKind.STAFF,
-  )
+  @Roles(...STAFF_OPERATION_ROLES)
   @ApiOperation({ summary: 'Update order status (staff+)' })
   @ApiParam({ name: 'id', description: 'Order id (UUID)' })
   @ApiBody({ type: UpdateOrderStatusDto })
@@ -153,14 +165,8 @@ export class OrdersController {
 
   @Post(':id/dispatch')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(
-    UserKind.ADMIN,
-    UserKind.SUPER_ADMIN,
-    UserKind.OPS_HEAD,
-    UserKind.BRANCH_MANAGER,
-    UserKind.STAFF,
-  )
-  @ApiOperation({ summary: 'Mark dispatched with tracking' })
+  @Roles(...STAFF_OPERATION_ROLES)
+  @ApiOperation({ summary: 'Mark dispatched with tracking ID' })
   @ApiBody({ type: DispatchOrderDto })
   dispatch(
     @Param('id', new ParseUUIDPipe()) id: string,

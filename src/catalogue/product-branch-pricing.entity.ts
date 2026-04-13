@@ -5,12 +5,14 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Product } from './product.entity';
 import { Branch } from '../branch/branch.entity';
 
 @Entity('product_branch_pricing')
+@Unique(['productId', 'branchId'])
 export class ProductBranchPricing {
   @PrimaryGeneratedColumn('uuid')
   id: string;

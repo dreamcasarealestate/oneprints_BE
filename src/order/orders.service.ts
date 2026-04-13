@@ -15,6 +15,11 @@ import { BranchesService } from '../branch/branch.service';
 import { NotificationsService } from '../notification/notifications.service';
 import { User } from '../user/user.entity';
 import { UserKind } from '../user/user-kind.enum';
+import {
+  isBranchAdminRole,
+  isStaffOperationRole,
+} from '../user/roles.util';
+import { normalizeKnownUserKind } from '../user/user-kind.util';
 
 const STATUS_LABELS: Record<string, string> = {
   order_placed: 'Order placed',
@@ -125,6 +130,7 @@ export class OrdersService {
         color: row.color ?? null,
         designData: row.designData ?? null,
         measurements: row.measurements ?? null,
+        customizationData: row.customizationData ?? null,
       });
       await this.itemsRepo.save(line);
     }
@@ -152,8 +158,16 @@ export class OrdersService {
   }
 
   findAllForStaff(actor: User) {
+    const normalizedKind = normalizeKnownUserKind(actor.userKind);
+    if (normalizedKind === UserKind.SUPER_ADMIN || normalizedKind === UserKind.OPS_HEAD) {
+      return this.ordersRepo.find({
+        relations: ['user', 'items', 'branch'],
+        order: { createdAt: 'DESC' },
+      });
+    }
+
     if (
-      actor.userKind === UserKind.BRANCH_MANAGER &&
+      (isBranchAdminRole(normalizedKind) || normalizedKind === UserKind.STAFF) &&
       actor.branchId
     ) {
       return this.ordersRepo.find({
@@ -162,6 +176,11 @@ export class OrdersService {
         order: { createdAt: 'DESC' },
       });
     }
+
+    if (normalizedKind === UserKind.ADMIN || normalizedKind === UserKind.STAFF) {
+      throw new ForbiddenException('Your account has no branch assignment.');
+    }
+
     return this.ordersRepo.find({
       relations: ['user', 'items', 'branch'],
       order: { createdAt: 'DESC' },
@@ -180,22 +199,23 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
 
     const isStaff =
-      !!actor &&
-      [
-        UserKind.ADMIN,
-        UserKind.SUPER_ADMIN,
-        UserKind.OPS_HEAD,
-        UserKind.BRANCH_MANAGER,
-        UserKind.STAFF,
-      ].includes(actor.userKind as UserKind);
+      !!actor && isStaffOperationRole(actor.userKind as UserKind);
 
     if (customerId && order.customerId !== customerId && !isStaff) {
       throw new ForbiddenException();
     }
 
+    const normalizedKind = normalizeKnownUserKind(actor?.userKind ?? null);
     if (
-      actor?.userKind === UserKind.BRANCH_MANAGER &&
-      actor.branchId &&
+      (isBranchAdminRole(normalizedKind) || normalizedKind === UserKind.STAFF) &&
+      !actor?.branchId
+    ) {
+      throw new ForbiddenException('Your account has no branch assignment.');
+    }
+
+    if (
+      (isBranchAdminRole(normalizedKind) || normalizedKind === UserKind.STAFF) &&
+      actor?.branchId &&
       order.branchId !== actor.branchId
     ) {
       throw new ForbiddenException();

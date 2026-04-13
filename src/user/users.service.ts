@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,9 +9,13 @@ import * as bcrypt from 'bcrypt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity';
+import { Role } from './role.entity';
 import { UserKind } from './user-kind.enum';
+import { userKindToRoleKey } from './role-key.util';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { isBranchAdminRole, isGlobalOperationRole } from './roles.util';
+import { normalizeKnownUserKind, normalizeUserKind } from './user-kind.util';
 
 export type CreateUserInternal = {
   firstName: string;
@@ -20,6 +25,7 @@ export type CreateUserInternal = {
   phoneNumber: string;
   passwordHash: string;
   userKind: UserKind;
+  branchId?: string | null;
 };
 
 @Injectable()
@@ -27,14 +33,173 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
+    @InjectRepository(Role)
+    private readonly roleRepo: Repository<Role>,
   ) {}
 
+  async ensureRoleRows(): Promise<void> {
+    const keys = [
+      'customer',
+      'designer',
+      'branch_staff',
+      'branch_manager',
+      'ops_head',
+      'super_admin',
+      'admin',
+    ];
+    for (const key of keys) {
+      const row = await this.roleRepo.findOne({ where: { key } });
+      if (!row) {
+        await this.roleRepo.save(this.roleRepo.create({ key }));
+      }
+    }
+  }
+
+  async syncAllUserRoleIds(): Promise<void> {
+    await this.ensureRoleRows();
+    const users = await this.usersRepo.find({
+      select: ['id', 'userKind', 'roleId'],
+    });
+    for (const u of users) {
+      const roleId = await this.resolveRoleId(u.userKind);
+      if (u.roleId !== roleId) {
+        u.roleId = roleId;
+        await this.usersRepo.save(u);
+      }
+    }
+  }
+
+  private async resolveRoleId(kind: UserKind): Promise<string | null> {
+    const key = userKindToRoleKey(normalizeKnownUserKind(kind));
+    const r = await this.roleRepo.findOne({ where: { key } });
+    return r?.id ?? null;
+  }
+
   async create(data: CreateUserInternal): Promise<User> {
-    const entity = this.usersRepo.create(data);
+    const userKind = normalizeKnownUserKind(data.userKind);
+    const roleId = await this.resolveRoleId(userKind);
+    const entity = this.usersRepo.create({
+      ...data,
+      userKind,
+      roleId,
+      branchId: data.branchId ?? null,
+    });
     return this.usersRepo.save(entity);
   }
 
-  async createManagedUser(dto: CreateUserDto) {
+  private async createUnscopedUser(dto: CreateUserDto): Promise<User> {
+    const kind = normalizeKnownUserKind(dto.userKind ?? UserKind.USER);
+    const email = dto.email.trim().toLowerCase();
+    const username =
+      dto.username?.trim() ||
+      (await this.generateUniqueUsername(dto.firstName, dto.lastName));
+
+    await this.ensureRoleRows();
+    await this.ensureEmailAvailable(email);
+    await this.ensureUsernameAvailable(username);
+
+    return this.create({
+      firstName: dto.firstName.trim(),
+      lastName: dto.lastName.trim(),
+      username,
+      email,
+      phoneNumber: dto.phoneNumber.trim(),
+      passwordHash: await bcrypt.hash(dto.password, 10),
+      userKind: kind,
+      branchId: dto.branchId?.trim() || null,
+    });
+  }
+
+  private isBranchScopedOperator(kind: UserKind): boolean {
+    const normalized = normalizeUserKind(kind);
+    return isBranchAdminRole(kind) || normalized === UserKind.STAFF;
+  }
+
+  private resolveTargetBranchIdForWrite(
+    actor: User,
+    dtoBranchId?: string,
+  ): string | null {
+    if (isGlobalOperationRole(normalizeKnownUserKind(actor.userKind))) {
+      const trimmed = dtoBranchId?.trim();
+      if (!trimmed) {
+        throw new BadRequestException(
+          'branchId is required when using a global account (super_admin / ops_head). Select a branch in the admin UI and send it in the payload.',
+        );
+      }
+      return trimmed;
+    }
+    if (!this.isBranchScopedOperator(actor.userKind)) {
+      throw new ForbiddenException();
+    }
+    if (!actor.branchId) {
+      throw new BadRequestException(
+        'Your account has no branch assignment. Ask a super admin to set branchId on your user row, or use a global role.',
+      );
+    }
+    return actor.branchId;
+  }
+
+  private assertCreatableUserKind(actor: User, kind: UserKind): void {
+    const normalizedActorKind = normalizeKnownUserKind(actor.userKind);
+    const normalizedTargetKind = normalizeKnownUserKind(kind);
+    if (
+      normalizedTargetKind === UserKind.SUPER_ADMIN &&
+      normalizedActorKind !== UserKind.SUPER_ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Only super_admin can create super_admin users',
+      );
+    }
+    if (isGlobalOperationRole(normalizedActorKind)) {
+      const blocked = [UserKind.CUSTOMER, UserKind.USER, UserKind.DESIGNER];
+      if (blocked.includes(normalizedTargetKind)) {
+        throw new BadRequestException(
+          'Cannot create storefront-only roles from admin user management',
+        );
+      }
+      return;
+    }
+    if (isBranchAdminRole(normalizedActorKind)) {
+      const allowed = [UserKind.ADMIN, UserKind.STAFF];
+      if (!allowed.includes(normalizedTargetKind)) {
+        throw new BadRequestException(
+          'You can only create admin or staff users for your branch',
+        );
+      }
+      return;
+    }
+    if (normalizedActorKind === UserKind.STAFF) {
+      const allowed = [UserKind.STAFF];
+      if (!allowed.includes(normalizedTargetKind)) {
+        throw new BadRequestException('You can only create staff users');
+      }
+      return;
+    }
+    throw new ForbiddenException();
+  }
+
+  private assertActorCanAccessUserRow(actor: User, target: User): void {
+    const normalizedActorKind = normalizeKnownUserKind(actor.userKind);
+    if (isGlobalOperationRole(normalizedActorKind)) {
+      return;
+    }
+    if (!this.isBranchScopedOperator(normalizedActorKind)) {
+      throw new ForbiddenException();
+    }
+    if (!actor.branchId) {
+      throw new BadRequestException('Your account has no branch assignment.');
+    }
+    if (target.branchId !== actor.branchId) {
+      throw new ForbiddenException('User belongs to another branch');
+    }
+  }
+
+  async createManagedUser(dto: CreateUserDto, actor?: User) {
+    if (!actor) {
+      const user = await this.createUnscopedUser(dto);
+      return this.toSafeUser(user);
+    }
+
     const email = dto.email.trim().toLowerCase();
     const username =
       dto.username?.trim() ||
@@ -43,6 +208,10 @@ export class UsersService {
     await this.ensureEmailAvailable(email);
     await this.ensureUsernameAvailable(username);
 
+    const kind = normalizeKnownUserKind(dto.userKind ?? UserKind.STAFF);
+    this.assertCreatableUserKind(actor, kind);
+    const branchId = this.resolveTargetBranchIdForWrite(actor, dto.branchId);
+
     const user = await this.create({
       firstName: dto.firstName.trim(),
       lastName: dto.lastName.trim(),
@@ -50,7 +219,8 @@ export class UsersService {
       email,
       phoneNumber: dto.phoneNumber.trim(),
       passwordHash: await bcrypt.hash(dto.password, 10),
-      userKind: dto.userKind ?? UserKind.USER,
+      userKind: kind,
+      branchId,
     });
 
     return this.toSafeUser(user);
@@ -73,6 +243,26 @@ export class UsersService {
     return this.usersRepo.findOne({ where: { email } });
   }
 
+  /**
+   * When a designer application is approved, link the storefront account that
+   * registered with the same email and promote the role to designer.
+   */
+  async promoteCustomerToDesignerByEmail(email: string): Promise<User | null> {
+    await this.ensureRoleRows();
+    const normalized = email.trim().toLowerCase();
+    const user = await this.findByEmail(normalized);
+    if (!user) {
+      return null;
+    }
+    if (normalizeKnownUserKind(user.userKind) !== UserKind.USER) {
+      return null;
+    }
+    user.userKind = UserKind.DESIGNER;
+    user.roleId = await this.resolveRoleId(UserKind.DESIGNER);
+    await this.usersRepo.save(user);
+    return user;
+  }
+
   async findByUsername(username: string): Promise<User | null> {
     return this.usersRepo.findOne({ where: { username } });
   }
@@ -88,6 +278,7 @@ export class UsersService {
         'email',
         'phoneNumber',
         'userKind',
+        'roleId',
         'branchId',
         'passwordHash',
         'createdAt',
@@ -97,13 +288,89 @@ export class UsersService {
   }
 
   async countByKind(kind: UserKind): Promise<number> {
-    return this.usersRepo.count({ where: { userKind: kind } });
+    const normalized = normalizeKnownUserKind(kind);
+    const variants: UserKind[] =
+      normalized === UserKind.USER
+        ? [UserKind.USER, UserKind.CUSTOMER]
+        : normalized === UserKind.ADMIN
+          ? [UserKind.ADMIN, UserKind.BRANCH_MANAGER]
+          : normalized === UserKind.STAFF
+            ? [UserKind.STAFF, UserKind.BRANCH_STAFF]
+            : [normalized];
+    return this.usersRepo.count({
+      where: variants.map((userKind) => ({ userKind })),
+    });
   }
 
   async findAll() {
     return this.usersRepo.find({
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async findAllForActor(actor: User, queryBranchId?: string) {
+    const qb = this.usersRepo
+      .createQueryBuilder('u')
+      .orderBy('u.createdAt', 'DESC');
+
+    if (isGlobalOperationRole(normalizeKnownUserKind(actor.userKind))) {
+      const trimmed = queryBranchId?.trim();
+      if (trimmed) {
+        qb.where('u.branchId = :bid', { bid: trimmed });
+      }
+    } else if (this.isBranchScopedOperator(normalizeKnownUserKind(actor.userKind))) {
+      if (!actor.branchId) {
+        throw new BadRequestException('Your account has no branch assignment.');
+      }
+      qb.where('u.branchId = :bid', { bid: actor.branchId });
+    } else {
+      throw new ForbiddenException();
+    }
+
+    const rows = await qb.getMany();
+    return rows.map((u) => this.toSafeUser(u));
+  }
+
+  /** Normalize legacy enum strings stored before role rename (idempotent). */
+  async normalizeLegacyUserKinds(): Promise<void> {
+    await this.usersRepo.query(
+      `UPDATE "users" SET "userKind" = $1 WHERE "userKind" = $2`,
+      [UserKind.USER, UserKind.CUSTOMER],
+    );
+    await this.usersRepo.query(
+      `UPDATE "users" SET "userKind" = $1 WHERE "userKind" = $2`,
+      [UserKind.STAFF, UserKind.BRANCH_STAFF],
+    );
+    await this.usersRepo.query(
+      `UPDATE "users" SET "userKind" = $1 WHERE "userKind" = $2`,
+      [UserKind.ADMIN, UserKind.BRANCH_MANAGER],
+    );
+  }
+
+  async updateNotificationPreferences(
+    userId: string,
+    prefs: Record<string, unknown>,
+  ) {
+    const user = await this.findOneOrFail(userId);
+    user.notificationPreferences = {
+      ...(user.notificationPreferences ?? {}),
+      ...prefs,
+    };
+    await this.usersRepo.save(user);
+    return user.notificationPreferences;
+  }
+
+  getNotificationPreferences(userId: string) {
+    return this.findOneOrFail(userId).then((u) => u.notificationPreferences);
+  }
+
+  async setPasswordHashByEmail(email: string, passwordHash: string) {
+    const user = await this.findByEmailWithPassword(email);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    user.passwordHash = passwordHash;
+    await this.usersRepo.save(user);
   }
 
   async findOneOrFail(id: string) {
@@ -114,8 +381,15 @@ export class UsersService {
     return user;
   }
 
-  async updateManagedUser(id: string, dto: UpdateUserDto) {
+  async findOneOrFailForActor(id: string, actor: User) {
     const user = await this.findOneOrFail(id);
+    this.assertActorCanAccessUserRow(actor, user);
+    return this.toSafeUser(user);
+  }
+
+  async updateManagedUser(id: string, dto: UpdateUserDto, actor: User) {
+    const user = await this.findOneOrFail(id);
+    this.assertActorCanAccessUserRow(actor, user);
     const nextEmail = dto.email?.trim().toLowerCase();
     const nextUsername = dto.username?.trim();
 
@@ -141,9 +415,22 @@ export class UsersService {
       user.phoneNumber = dto.phoneNumber.trim();
     }
 
-    if (dto.userKind && dto.userKind !== user.userKind) {
-      await this.ensureAdminStillExists(user.userKind, dto.userKind);
-      user.userKind = dto.userKind;
+    if (
+      dto.userKind &&
+      normalizeKnownUserKind(dto.userKind) !== normalizeKnownUserKind(user.userKind)
+    ) {
+      const nextKind = normalizeKnownUserKind(dto.userKind);
+      this.assertCreatableUserKind(actor, nextKind);
+      await this.ensureAdminStillExists(user.userKind, nextKind);
+      user.userKind = nextKind;
+      user.roleId = await this.resolveRoleId(nextKind);
+    }
+
+    if (dto.branchId !== undefined) {
+      if (!isGlobalOperationRole(normalizeKnownUserKind(actor.userKind))) {
+        throw new ForbiddenException('Only global roles can change branchId');
+      }
+      user.branchId = dto.branchId;
     }
 
     if (dto.password) {
@@ -159,8 +446,11 @@ export class UsersService {
     return this.toSafeUser(saved);
   }
 
-  async removeManagedUser(id: string) {
+  async removeManagedUser(id: string, actor?: User) {
     const user = await this.findOneOrFail(id);
+    if (actor) {
+      this.assertActorCanAccessUserRow(actor, user);
+    }
     await this.ensureAdminStillExists(user.userKind, null);
     await this.usersRepo.remove(user);
     return { id, deleted: true };
@@ -191,10 +481,7 @@ export class UsersService {
     }
   }
 
-  async ensureSeedAdmin(
-    email: string,
-    passwordHash: string,
-  ): Promise<void> {
+  async ensureSeedAdmin(email: string, passwordHash: string): Promise<void> {
     const existing = await this.usersRepo.findOne({ where: { email } });
     if (existing) {
       return;
@@ -206,16 +493,13 @@ export class UsersService {
         username: 'admin',
         email,
         phoneNumber: '0000000000',
-        userKind: UserKind.ADMIN,
+        userKind: UserKind.SUPER_ADMIN,
         passwordHash,
       }),
     );
   }
 
-  async ensureSeedStaff(
-    email: string,
-    passwordHash: string,
-  ): Promise<void> {
+  async ensureSeedStaff(email: string, passwordHash: string): Promise<void> {
     const existing = await this.usersRepo.findOne({ where: { email } });
     if (existing) {
       return;
@@ -235,7 +519,8 @@ export class UsersService {
 
   private toSafeUser(user: User) {
     const plain = user as User & { passwordHash?: string };
-    const { passwordHash: _passwordHash, ...safe } = plain;
+    const safe = { ...plain };
+    delete safe.passwordHash;
     return safe;
   }
 
@@ -254,7 +539,8 @@ export class UsersService {
   }
 
   private isElevatedAdmin(kind: UserKind): boolean {
-    return kind === UserKind.ADMIN || kind === UserKind.SUPER_ADMIN;
+    const normalized = normalizeKnownUserKind(kind);
+    return normalized === UserKind.ADMIN || normalized === UserKind.SUPER_ADMIN;
   }
 
   private async countElevatedAdmins(): Promise<number> {
@@ -270,8 +556,7 @@ export class UsersService {
     if (!this.isElevatedAdmin(currentKind)) {
       return;
     }
-    const nextIsElevated =
-      nextKind !== null && this.isElevatedAdmin(nextKind);
+    const nextIsElevated = nextKind !== null && this.isElevatedAdmin(nextKind);
     if (nextIsElevated) {
       return;
     }

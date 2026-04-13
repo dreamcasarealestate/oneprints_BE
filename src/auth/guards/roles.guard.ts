@@ -6,6 +6,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { UserKind } from '../../user/user-kind.enum';
+import { normalizeUserKind } from '../../user/user-kind.util';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -20,7 +21,7 @@ export class RolesGuard implements CanActivate {
       return true;
     }
     const { user } = context.switchToHttp().getRequest();
-    const kind = user?.userKind as UserKind | undefined;
+    const kind = normalizeUserKind(user?.userKind) as UserKind | null;
     if (!kind) {
       return false;
     }

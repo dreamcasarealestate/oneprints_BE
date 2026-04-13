@@ -13,6 +13,10 @@ import { CatalogueModule } from './catalogue/catalogue.module';
 import { DesignerModule } from './designer/designer.module';
 import { NotificationsModule } from './notification/notifications.module';
 import { DesignsModule } from './design/designs.module';
+import { AdminModule } from './admin/admin.module';
+import { AddressesModule } from './address/addresses.module';
+import { ReviewsModule } from './review/reviews.module';
+import { CorporateModule } from './corporate/corporate.module';
 
 @Module({
   imports: [
@@ -50,6 +54,10 @@ import { DesignsModule } from './design/designs.module';
     DesignerModule,
     NotificationsModule,
     DesignsModule,
+    AdminModule,
+    AddressesModule,
+    ReviewsModule,
+    CorporateModule,
   ],
   controllers: [AppController],
   providers: [AppService],
