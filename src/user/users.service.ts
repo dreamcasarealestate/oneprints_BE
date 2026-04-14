@@ -76,7 +76,7 @@ export class UsersService {
   }
 
   async create(data: CreateUserInternal): Promise<User> {
-    const userKind = normalizeKnownUserKind(data.userKind);
+    const userKind = data.userKind;
     const roleId = await this.resolveRoleId(userKind);
     const entity = this.usersRepo.create({
       ...data,
@@ -88,7 +88,7 @@ export class UsersService {
   }
 
   private async createUnscopedUser(dto: CreateUserDto): Promise<User> {
-    const kind = normalizeKnownUserKind(dto.userKind ?? UserKind.USER);
+    const kind = dto.userKind ?? UserKind.USER;
     const email = dto.email.trim().toLowerCase();
     const username =
       dto.username?.trim() ||
@@ -142,6 +142,9 @@ export class UsersService {
   private assertCreatableUserKind(actor: User, kind: UserKind): void {
     const normalizedActorKind = normalizeKnownUserKind(actor.userKind);
     const normalizedTargetKind = normalizeKnownUserKind(kind);
+    if (normalizedActorKind === UserKind.ADMIN) {
+      return;
+    }
     if (
       normalizedTargetKind === UserKind.SUPER_ADMIN &&
       normalizedActorKind !== UserKind.SUPER_ADMIN
@@ -208,7 +211,7 @@ export class UsersService {
     await this.ensureEmailAvailable(email);
     await this.ensureUsernameAvailable(username);
 
-    const kind = normalizeKnownUserKind(dto.userKind ?? UserKind.STAFF);
+    const kind = dto.userKind ?? UserKind.STAFF;
     this.assertCreatableUserKind(actor, kind);
     const branchId = this.resolveTargetBranchIdForWrite(actor, dto.branchId);
 
@@ -259,6 +262,21 @@ export class UsersService {
     }
     user.userKind = UserKind.DESIGNER;
     user.roleId = await this.resolveRoleId(UserKind.DESIGNER);
+    await this.usersRepo.save(user);
+    return user;
+  }
+
+  async demoteDesignerToUserById(userId: string): Promise<User | null> {
+    await this.ensureRoleRows();
+    const user = await this.findById(userId);
+    if (!user) {
+      return null;
+    }
+    if (normalizeKnownUserKind(user.userKind) !== UserKind.DESIGNER) {
+      return user;
+    }
+    user.userKind = UserKind.USER;
+    user.roleId = await this.resolveRoleId(UserKind.USER);
     await this.usersRepo.save(user);
     return user;
   }
@@ -319,7 +337,9 @@ export class UsersService {
       if (trimmed) {
         qb.where('u.branchId = :bid', { bid: trimmed });
       }
-    } else if (this.isBranchScopedOperator(normalizeKnownUserKind(actor.userKind))) {
+    } else if (
+      this.isBranchScopedOperator(normalizeKnownUserKind(actor.userKind))
+    ) {
       if (!actor.branchId) {
         throw new BadRequestException('Your account has no branch assignment.');
       }
@@ -418,9 +438,10 @@ export class UsersService {
 
     if (
       dto.userKind &&
-      normalizeKnownUserKind(dto.userKind) !== normalizeKnownUserKind(user.userKind)
+      normalizeKnownUserKind(dto.userKind) !==
+        normalizeKnownUserKind(user.userKind)
     ) {
-      const nextKind = normalizeKnownUserKind(dto.userKind);
+      const nextKind = dto.userKind as UserKind;
       this.assertCreatableUserKind(actor, nextKind);
       await this.ensureAdminStillExists(user.userKind, nextKind);
       user.userKind = nextKind;

@@ -56,6 +56,36 @@ export class CatalogueService {
     return this.catRepo.save(c);
   }
 
+  /** Idempotent seed for storefront navigation — safe to call on every boot. */
+  async ensureDefaultCategories() {
+    const defaults: { name: string; slug: string; sortOrder: number }[] = [
+      { name: 'Apparel', slug: 'apparel', sortOrder: 10 },
+      { name: 'Drinkware', slug: 'drinkware', sortOrder: 20 },
+      { name: 'Bags', slug: 'bags', sortOrder: 30 },
+      { name: 'Stationery', slug: 'stationery', sortOrder: 40 },
+      { name: 'Office', slug: 'office', sortOrder: 50 },
+      { name: 'Awards', slug: 'awards', sortOrder: 60 },
+      { name: 'Promo & events', slug: 'promo', sortOrder: 70 },
+      { name: 'Tech accessories', slug: 'tech_accessories', sortOrder: 80 },
+      { name: 'Corporate gifting', slug: 'corporate_gifting', sortOrder: 90 },
+    ];
+    for (const row of defaults) {
+      const existing = await this.catRepo.findOne({
+        where: { slug: row.slug },
+      });
+      if (!existing) {
+        await this.catRepo.save(
+          this.catRepo.create({
+            name: row.name,
+            slug: row.slug,
+            parentId: null,
+            sortOrder: row.sortOrder,
+          }),
+        );
+      }
+    }
+  }
+
   async updateCategory(id: string, dto: UpdateCategoryDto) {
     const c = await this.catRepo.findOne({ where: { id } });
     if (!c) throw new NotFoundException('Category not found');
