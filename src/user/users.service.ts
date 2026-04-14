@@ -311,6 +311,7 @@ export class UsersService {
   async findAllForActor(actor: User, queryBranchId?: string) {
     const qb = this.usersRepo
       .createQueryBuilder('u')
+      .leftJoinAndSelect('u.branch', 'branch')
       .orderBy('u.createdAt', 'DESC');
 
     if (isGlobalOperationRole(normalizeKnownUserKind(actor.userKind))) {
