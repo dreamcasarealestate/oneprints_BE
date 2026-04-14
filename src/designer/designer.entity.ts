@@ -62,6 +62,24 @@ export class Designer {
   @Column('text', { nullable: true })
   rejectionReason: string | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  approvedByUserId: string | null;
+
+  @Column({ nullable: true })
+  approvedByName: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  approvedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  rejectedByUserId: string | null;
+
+  @Column({ nullable: true })
+  rejectedByName: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  rejectedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -19,6 +19,7 @@ import { DesignerMessageDto } from './dto/designer-message.dto';
 import { User } from '../user/user.entity';
 import { NotificationsService } from '../notification/notifications.service';
 import { UsersService } from '../user/users.service';
+import { DesignerProfileStatus } from './designer.entity';
 
 @Injectable()
 export class DesignersService {
@@ -49,8 +50,67 @@ export class DesignersService {
       status: 'pending',
       verified: false,
       availability: 'available',
+      approvedByUserId: null,
+      approvedByName: null,
+      approvedAt: null,
+      rejectedByUserId: null,
+      rejectedByName: null,
+      rejectedAt: null,
     });
     return this.designerRepo.save(d);
+  }
+
+  async listAdminDesigners(
+    options: {
+      search?: string;
+      specialization?: string;
+      rateType?: 'hourly' | 'project' | 'all';
+      status?: DesignerProfileStatus | 'all';
+      page?: number;
+      limit?: number;
+    } = {},
+  ) {
+    const page = Math.max(Number(options.page ?? 1) || 1, 1);
+    const limit = Math.min(Math.max(Number(options.limit ?? 10) || 10, 1), 50);
+    const qb = this.designerRepo
+      .createQueryBuilder('d')
+      .where('1=1')
+      .orderBy('d.createdAt', 'DESC');
+
+    const status = options.status?.trim();
+    if (status && status !== 'all') {
+      qb.where('d.status = :status', { status });
+    }
+
+    const search = options.search?.trim().toLowerCase();
+    if (search) {
+      qb.andWhere(
+        "(LOWER(d.displayName) LIKE :q OR LOWER(d.email) LIKE :q OR LOWER(COALESCE(d.city, '')) LIKE :q OR LOWER(COALESCE(d.bio, '')) LIKE :q OR d.specializations::text ILIKE :sp)",
+        {
+          q: `%${search}%`,
+          sp: `%${search}%`,
+        },
+      );
+    }
+
+    const specialization = options.specialization?.trim();
+    if (specialization && specialization !== 'all') {
+      qb.andWhere(`d.specializations::text ILIKE :specialization`, {
+        specialization: `%${specialization}%`,
+      });
+    }
+
+    const rateType = options.rateType?.trim();
+    if (rateType && rateType !== 'all') {
+      qb.andWhere('d.rateType = :rateType', { rateType });
+    }
+
+    const [items, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return { items, total, page, limit };
   }
 
   listApproved(search?: string, specialization?: string) {
@@ -58,10 +118,9 @@ export class DesignersService {
       .createQueryBuilder('d')
       .where('d.status = :st', { st: 'approved' });
     if (search?.trim()) {
-      qb.andWhere(
-        '(LOWER(d.displayName) LIKE :q OR LOWER(d.bio) LIKE :q)',
-        { q: `%${search.trim().toLowerCase()}%` },
-      );
+      qb.andWhere('(LOWER(d.displayName) LIKE :q OR LOWER(d.bio) LIKE :q)', {
+        q: `%${search.trim().toLowerCase()}%`,
+      });
     }
     if (specialization?.trim()) {
       qb.andWhere(`d.specializations::text ILIKE :sp`, {
@@ -85,21 +144,10 @@ export class DesignersService {
     });
   }
 
-  async approveDesigner(id: string) {
+  async approveDesigner(id: string, reviewer?: User) {
     const d = await this.designerRepo.findOne({ where: { id } });
     if (!d) throw new NotFoundException('Designer not found');
-    d.status = 'approved';
-    d.rejectionReason = null;
-    let saved = await this.designerRepo.save(d);
-
-    const user = await this.usersService.promoteCustomerToDesignerByEmail(
-      d.email,
-    );
-    if (user) {
-      saved.userId = user.id;
-      saved = await this.designerRepo.save(saved);
-    }
-    return saved;
+    return this.setDesignerStatusEntity(d, 'approved', reviewer);
   }
 
   /**
@@ -120,21 +168,81 @@ export class DesignersService {
     return { linked: false as const, designer: byEmail ?? null };
   }
 
-  async rejectDesigner(id: string, dto: RejectDesignerDto) {
+  async rejectDesigner(id: string, dto: RejectDesignerDto, reviewer?: User) {
     const d = await this.designerRepo.findOne({ where: { id } });
     if (!d) throw new NotFoundException('Designer not found');
     d.status = 'rejected';
     d.rejectionReason = dto.reason.trim();
+    d.rejectedByUserId = reviewer?.id ?? null;
+    d.rejectedByName = this.userDisplayName(reviewer) ?? null;
+    d.rejectedAt = new Date();
     return this.designerRepo.save(d);
   }
 
-  async updateOwnProfile(user: User, designerId: string, dto: UpdateDesignerProfileDto) {
+  async setDesignerStatus(
+    id: string,
+    status: Extract<DesignerProfileStatus, 'approved' | 'suspended'>,
+    reviewer?: User,
+  ) {
+    const d = await this.designerRepo.findOne({ where: { id } });
+    if (!d) throw new NotFoundException('Designer not found');
+    return this.setDesignerStatusEntity(d, status, reviewer);
+  }
+
+  private async setDesignerStatusEntity(
+    designer: Designer,
+    status: Extract<DesignerProfileStatus, 'approved' | 'suspended'>,
+    reviewer?: User,
+  ) {
+    designer.status = status;
+    if (status === 'approved') {
+      designer.approvedByUserId = reviewer?.id ?? null;
+      designer.approvedByName = this.userDisplayName(reviewer) ?? null;
+      designer.approvedAt = new Date();
+    }
+    let saved = await this.designerRepo.save(designer);
+
+    if (status === 'approved') {
+      const user = await this.usersService.promoteCustomerToDesignerByEmail(
+        saved.email,
+      );
+      if (user) {
+        saved.userId = user.id;
+        saved = await this.designerRepo.save(saved);
+      }
+    }
+
+    return saved;
+  }
+
+  private userDisplayName(user?: User | null): string | null {
+    if (!user) return null;
+    const fullName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+    return fullName || user.username || user.email || null;
+  }
+
+  async deleteDesigner(id: string) {
+    const designer = await this.designerRepo.findOne({ where: { id } });
+    if (!designer) throw new NotFoundException('Designer not found');
+    if (designer.userId) {
+      await this.usersService.demoteDesignerToUserById(designer.userId);
+    }
+    await this.designerRepo.remove(designer);
+    return { id };
+  }
+
+  async updateOwnProfile(
+    user: User,
+    designerId: string,
+    dto: UpdateDesignerProfileDto,
+  ) {
     const d = await this.designerRepo.findOne({ where: { id: designerId } });
     if (!d) throw new NotFoundException('Designer not found');
     if (d.userId !== user.id) throw new ForbiddenException();
     if (dto.displayName !== undefined) d.displayName = dto.displayName.trim();
     if (dto.bio !== undefined) d.bio = dto.bio?.trim() ?? null;
-    if (dto.specializations !== undefined) d.specializations = dto.specializations;
+    if (dto.specializations !== undefined)
+      d.specializations = dto.specializations;
     if (dto.portfolioUrls !== undefined) d.portfolioUrls = dto.portfolioUrls;
     if (dto.baseRateInr !== undefined) d.baseRateInr = dto.baseRateInr;
     if (dto.rateType !== undefined) d.rateType = dto.rateType;
@@ -185,7 +293,8 @@ export class DesignersService {
 
   async acceptJob(jobId: string, userId: string) {
     const designer = await this.designerForUser(userId);
-    if (!designer) throw new ForbiddenException('Not a linked designer account');
+    if (!designer)
+      throw new ForbiddenException('Not a linked designer account');
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) throw new NotFoundException('Job not found');
     if (job.designerId !== designer.id) throw new ForbiddenException();

@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { CatalogueService } from '../catalogue/catalogue.service';
 import { UsersService } from '../user/users.service';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class SeedService implements OnModuleInit {
   constructor(
     private readonly users: UsersService,
     private readonly config: ConfigService,
+    private readonly catalogue: CatalogueService,
   ) {}
 
   async onModuleInit() {
@@ -25,5 +27,6 @@ export class SeedService implements OnModuleInit {
     await this.users.ensureSeedStaff(staffEmail, staffHash);
 
     await this.users.syncAllUserRoleIds();
+    await this.catalogue.ensureDefaultCategories();
   }
 }

@@ -11,6 +11,7 @@ import { ApplyDesignerDto } from '../designer/dto/apply-designer.dto';
 import { Payout } from '../payout/payout.entity';
 import { AuditLog } from '../audit/audit-log.entity';
 import { CreatePayoutDto } from './dto/create-payout.dto';
+import { DesignerProfileStatus } from '../designer/designer.entity';
 
 @Injectable()
 export class AdminService {
@@ -30,27 +31,22 @@ export class AdminService {
   ) {}
 
   async analytics() {
-    const [
-      orderCount,
-      userCount,
-      productCount,
-      revenueRow,
-      ordersByStatus,
-    ] = await Promise.all([
-      this.ordersRepo.count(),
-      this.usersRepo.count(),
-      this.productsRepo.count(),
-      this.ordersRepo
-        .createQueryBuilder('o')
-        .select('COALESCE(SUM(o.totalAmount),0)', 'sum')
-        .getRawOne<{ sum: string }>(),
-      this.ordersRepo
-        .createQueryBuilder('o')
-        .select('o.status', 'status')
-        .addSelect('COUNT(*)', 'count')
-        .groupBy('o.status')
-        .getRawMany<{ status: string; count: string }>(),
-    ]);
+    const [orderCount, userCount, productCount, revenueRow, ordersByStatus] =
+      await Promise.all([
+        this.ordersRepo.count(),
+        this.usersRepo.count(),
+        this.productsRepo.count(),
+        this.ordersRepo
+          .createQueryBuilder('o')
+          .select('COALESCE(SUM(o.totalAmount),0)', 'sum')
+          .getRawOne<{ sum: string }>(),
+        this.ordersRepo
+          .createQueryBuilder('o')
+          .select('o.status', 'status')
+          .addSelect('COUNT(*)', 'count')
+          .groupBy('o.status')
+          .getRawMany<{ status: string; count: string }>(),
+      ]);
 
     return {
       ordersTotal: orderCount,
@@ -67,12 +63,41 @@ export class AdminService {
     return this.designers.listPending();
   }
 
+  listDesigners(
+    options: {
+      search?: string;
+      specialization?: string;
+      rateType?: 'hourly' | 'project' | 'all';
+      status?: DesignerProfileStatus | 'all';
+      page?: number;
+      limit?: number;
+    } = {},
+  ) {
+    return this.designers.listAdminDesigners(options);
+  }
+
   approveDesigner(id: string) {
     return this.designers.approveDesigner(id);
   }
 
-  rejectDesigner(id: string, dto: RejectDesignerDto) {
-    return this.designers.rejectDesigner(id, dto);
+  approveDesignerWithActor(id: string, actor: User) {
+    return this.designers.approveDesigner(id, actor);
+  }
+
+  rejectDesigner(id: string, dto: RejectDesignerDto, actor?: User) {
+    return this.designers.rejectDesigner(id, dto, actor);
+  }
+
+  setDesignerStatus(
+    id: string,
+    status: Extract<DesignerProfileStatus, 'approved' | 'suspended'>,
+    actor?: User,
+  ) {
+    return this.designers.setDesignerStatus(id, status, actor);
+  }
+
+  deleteDesigner(id: string) {
+    return this.designers.deleteDesigner(id);
   }
 
   /** Submit a marketplace designer application from the admin portal (ops). */
