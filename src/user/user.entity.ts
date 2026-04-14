@@ -11,6 +11,7 @@ import {
 import { UserKind } from './user-kind.enum';
 import { Order } from '../order/order.entity';
 import { Role } from './role.entity';
+import { Branch } from '../branch/branch.entity';
 
 @Entity('users')
 export class User {
@@ -49,6 +50,10 @@ export class User {
   /** Set for branch-scoped roles; null for global operational roles */
   @Column({ type: 'uuid', nullable: true })
   branchId: string | null;
+
+  @ManyToOne(() => Branch, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'branchId' })
+  branch: Branch | null;
 
   @Column({ select: false })
   passwordHash: string;

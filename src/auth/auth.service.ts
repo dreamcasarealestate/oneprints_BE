@@ -180,7 +180,7 @@ export class AuthService {
     branchId?: string | null;
   }) {
     const accessTtl =
-      this.config.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '15m';
+      this.config.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '30d';
     const refreshTtl =
       this.config.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d';
 
