@@ -3,6 +3,7 @@ import {
   IsArray,
   IsBoolean,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -59,6 +60,25 @@ export class CreateProductDto {
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'array', items: { type: 'string' } },
+    description:
+      'Map of colour (as in availableColours) to image URL list for that variant. Legacy clients may send one string per key.',
+  })
+  @IsOptional()
+  @IsObject()
+  imagesByColour?: Record<string, string[] | string>;
+
+  @ApiPropertyOptional({
+    type: [Object],
+    description: 'Category-specific custom sections and form fields saved with the product.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  customSections?: Record<string, unknown>[];
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -118,6 +138,22 @@ export class CreateProductDto {
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
-  branchAvailability?: string[] | null;
+  @IsString({ each: true })
+  tags?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  trackInventory?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  stockQuantity?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  restockNote?: string | null;
 }

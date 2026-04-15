@@ -24,6 +24,13 @@ export const CATALOGUE_ADMIN_ROLES: UserKind[] = [
   UserKind.ADMIN,
 ];
 
+/** Product CRUD + admin catalogue list (includes staff). */
+export const CATALOGUE_PRODUCT_EDITOR_ROLES: UserKind[] = [
+  UserKind.SUPER_ADMIN,
+  UserKind.ADMIN,
+  UserKind.STAFF,
+];
+
 export const USER_MANAGEMENT_ROLES: UserKind[] = [
   UserKind.SUPER_ADMIN,
   UserKind.ADMIN,

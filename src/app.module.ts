@@ -17,6 +17,7 @@ import { AdminModule } from './admin/admin.module';
 import { AddressesModule } from './address/addresses.module';
 import { ReviewsModule } from './review/reviews.module';
 import { CorporateModule } from './corporate/corporate.module';
+import { FavoritesModule } from './favorites/favorites.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { CorporateModule } from './corporate/corporate.module';
     DesignerModule,
     NotificationsModule,
     DesignsModule,
+    FavoritesModule,
     AdminModule,
     AddressesModule,
     ReviewsModule,

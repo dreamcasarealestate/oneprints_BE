@@ -5,8 +5,8 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
-  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -18,11 +18,12 @@ import {
 import { CatalogueService } from './catalogue.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { UpsertBranchPricingDto } from './dto/upsert-branch-pricing.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { CATALOGUE_ADMIN_ROLES } from '../user/roles.util';
+import { CATALOGUE_PRODUCT_EDITOR_ROLES } from '../user/roles.util';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from '../user/user.entity';
 
 @ApiTags('Products')
 @Controller('products')
@@ -34,17 +35,8 @@ export class ProductsController {
   list(
     @Query('category') categorySlug?: string,
     @Query('search') search?: string,
-    @Query('branchId') branchId?: string,
   ) {
-    return this.catalogue.listProducts({ categorySlug, search, branchId });
-  }
-
-  @Get(':id/branch-pricing')
-  @ApiOperation({
-    summary: 'Branch-level price overrides for a product (public)',
-  })
-  branchPricing(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.catalogue.listBranchPricing(id);
+    return this.catalogue.listProducts({ categorySlug, search });
   }
 
   @Get(':id')
@@ -56,58 +48,58 @@ export class ProductsController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth('access-token')
-  @Roles(...CATALOGUE_ADMIN_ROLES)
-  @ApiOperation({ summary: 'Create product (admin)' })
-  create(@Body() dto: CreateProductDto) {
-    return this.catalogue.createProduct(dto);
+  @Roles(...CATALOGUE_PRODUCT_EDITOR_ROLES)
+  @ApiOperation({ summary: 'Create product (admin / staff)' })
+  create(@Body() dto: CreateProductDto, @CurrentUser() user: User) {
+    return this.catalogue.createProduct(dto, user);
   }
 
-  @Put(':id')
+  @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth('access-token')
-  @Roles(...CATALOGUE_ADMIN_ROLES)
-  @ApiOperation({ summary: 'Update product (admin)' })
+  @Roles(...CATALOGUE_PRODUCT_EDITOR_ROLES)
+  @ApiOperation({ summary: 'Partially update product (admin / staff)' })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateProductDto,
+    @CurrentUser() user: User,
   ) {
-    return this.catalogue.updateProduct(id, dto);
+    return this.catalogue.updateProduct(id, dto, user);
+  }
+
+  @Post(':id/restore')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(...CATALOGUE_PRODUCT_EDITOR_ROLES)
+  @ApiOperation({ summary: 'Restore archived product to storefront (admin / staff)' })
+  restore(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.catalogue.restoreProduct(id, user);
+  }
+
+  @Delete(':id/permanent')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(...CATALOGUE_PRODUCT_EDITOR_ROLES)
+  @ApiOperation({
+    summary: 'Permanently delete product (admin / staff)',
+    description:
+      'Irreversible. Clears product link on saved designs and designer jobs; order items keep line text with product reference nulled.',
+  })
+  permanentDelete(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.catalogue.deleteProductPermanent(id);
   }
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth('access-token')
-  @Roles(...CATALOGUE_ADMIN_ROLES)
-  @ApiOperation({ summary: 'Archive product (admin)' })
-  archive(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.catalogue.archiveProduct(id);
-  }
-
-  @Put(':id/branch-pricing')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @ApiBearerAuth('access-token')
-  @Roles(...CATALOGUE_ADMIN_ROLES)
-  @ApiOperation({ summary: 'Upsert branch price override (admin)' })
-  upsertBranchPricing(
-    @Param('id', new ParseUUIDPipe()) productId: string,
-    @Body() dto: UpsertBranchPricingDto,
-  ) {
-    return this.catalogue.upsertBranchPricing(
-      productId,
-      dto.branchId,
-      dto.priceOverride,
-    );
-  }
-
-  @Delete(':id/branch-pricing/:branchId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @ApiBearerAuth('access-token')
-  @Roles(...CATALOGUE_ADMIN_ROLES)
-  @ApiOperation({ summary: 'Remove branch price override (admin)' })
-  deleteBranchPricing(
-    @Param('id', new ParseUUIDPipe()) productId: string,
-    @Param('branchId', new ParseUUIDPipe()) branchId: string,
-  ) {
-    return this.catalogue.deleteBranchPricing(productId, branchId);
+  @Roles(...CATALOGUE_PRODUCT_EDITOR_ROLES)
+  @ApiOperation({ summary: 'Archive product (admin / staff)' })
+  archive(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: User) {
+    return this.catalogue.archiveProduct(id, user);
   }
 }
