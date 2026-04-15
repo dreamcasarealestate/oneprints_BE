@@ -40,6 +40,14 @@ export class Product {
   @Column('jsonb', { default: [] })
   images: string[];
 
+  /** Image URL lists per catalogue colour key (matches `availableColours` entries). Legacy rows may hold a single string per key — normalize on read/write. */
+  @Column({ type: 'jsonb', nullable: true })
+  imagesByColour: Record<string, string[]> | null;
+
+  /** Category-specific custom sections and field groups shown in admin/storefront forms. */
+  @Column('jsonb', { default: [] })
+  customSections: Record<string, unknown>[];
+
   /** [{ view, x, y, width, height }] */
   @Column('jsonb', { default: [] })
   printAreas: { view: string; x: number; y: number; width: number; height: number }[];
@@ -71,9 +79,37 @@ export class Product {
   @Column({ default: true })
   isActive: boolean;
 
-  /** null = all branches */
+  /** Search / merchandising tags (not product variants). */
+  @Column('jsonb', { default: [] })
+  tags: string[];
+
+  /** When true, `stockQuantity` is shown and used for availability messaging. */
+  @Column({ default: false })
+  trackInventory: boolean;
+
+  /** Units on hand when tracking; null = treat as unlimited / not set. */
+  @Column('double precision', { nullable: true })
+  stockQuantity: number | null;
+
+  /** Optional note shown in admin / storefront (e.g. restock ETA). */
+  @Column('text', { nullable: true })
+  restockNote: string | null;
+
+  /** Deprecated: catalogue is global; kept for DB compatibility, always null. */
   @Column('jsonb', { nullable: true })
   branchAvailability: string[] | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  createdByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  createdByDisplayName: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  updatedByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  updatedByDisplayName: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

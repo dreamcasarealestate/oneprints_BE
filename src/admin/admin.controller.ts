@@ -20,11 +20,13 @@ import {
   ANALYTICS_ROLES,
   AUDIT_VIEW_ROLES,
   CATALOGUE_ADMIN_ROLES,
+  CATALOGUE_PRODUCT_EDITOR_ROLES,
   DESIGNER_APPROVAL_ROLES,
   DESIGNER_VIEW_ROLES,
   PAYOUT_ADMIN_ROLES,
 } from '../user/roles.util';
 import { AdminService } from './admin.service';
+import { CatalogueService } from '../catalogue/catalogue.service';
 import { RejectDesignerDto } from '../designer/dto/reject-designer.dto';
 import { ApplyDesignerDto } from '../designer/dto/apply-designer.dto';
 import { BulkImportProductsDto } from './dto/bulk-import-products.dto';
@@ -36,7 +38,10 @@ import { User } from '../user/user.entity';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('access-token')
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly catalogue: CatalogueService,
+  ) {}
 
   @Get('analytics')
   @Roles(...ANALYTICS_ROLES)
@@ -139,6 +144,41 @@ export class AdminController {
   @ApiBody({ type: BulkImportProductsDto })
   bulkImport(@Body() dto: BulkImportProductsDto) {
     return this.admin.bulkImportProducts(dto.csv);
+  }
+
+  @Get('catalogue/products')
+  @Roles(...CATALOGUE_PRODUCT_EDITOR_ROLES)
+  @ApiOperation({
+    summary: 'Paginated catalogue products (admin / staff, incl. inactive)',
+  })
+  listCatalogueProducts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('category') category?: string,
+    @Query('categories') categories?: string,
+    @Query('status') status?: 'all' | 'active' | 'archived',
+  ) {
+    const fromList = categories
+      ? categories
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    const categorySlugs =
+      fromList.length > 0
+        ? fromList
+        : category?.trim()
+          ? [category.trim().toLowerCase()]
+          : undefined;
+
+    return this.catalogue.listProductsAdminPaged({
+      page: page !== undefined ? Number(page) : undefined,
+      limit: limit !== undefined ? Number(limit) : undefined,
+      search,
+      categorySlugs,
+      status: status ?? 'all',
+    });
   }
 
   @Get('payouts')

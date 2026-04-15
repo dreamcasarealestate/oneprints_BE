@@ -6,7 +6,6 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
-  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -29,8 +28,8 @@ export class CategoriesController {
 
   @Get()
   @ApiOperation({ summary: 'List categories and sub-categories (public)' })
-  list(@Query('branchId') branchId?: string) {
-    return this.catalogue.listCategories(branchId);
+  list() {
+    return this.catalogue.listCategories();
   }
 
   @Post()

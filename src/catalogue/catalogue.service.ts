@@ -1,18 +1,90 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
+import { Design } from '../design/design.entity';
+import { DesignerJob } from '../designer/designer-job.entity';
 import { ProductCategory } from './product-category.entity';
 import { Product } from './product.entity';
-import { ProductBranchPricing } from './product-branch-pricing.entity';
 import { CreateCategoryDto } from './dto/create-category.dto';
+import { CANONICAL_CATEGORIES } from './canonical-categories';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { User } from '../user/user.entity';
 
 export type ProductListQuery = {
   categorySlug?: string;
   search?: string;
-  branchId?: string;
+};
+
+function normalizeImagesByColour(raw: unknown): Record<string, string[]> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const key = String(k).trim();
+    if (!key) continue;
+    if (typeof v === 'string' && v.trim().length > 0) {
+      out[key] = [v.trim()];
+    } else if (Array.isArray(v)) {
+      const urls = v
+        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        .map((x) => x.trim());
+      if (urls.length) out[key] = urls;
+    }
+  }
+  return out;
+}
+
+function hexKey(c: string): string | null {
+  const t = c.trim();
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(t)) return t.toLowerCase();
+  return null;
+}
+
+function pruneImagesByColour(
+  map: Record<string, string[]>,
+  colours: string[],
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const allowed = colours.map((c) => c.trim()).filter(Boolean);
+  for (const colour of allowed) {
+    let urls = map[colour];
+    if (!urls?.length) {
+      const nh = hexKey(colour);
+      if (nh) {
+        const hit = Object.entries(map).find(
+          ([k]) => hexKey(k) === nh || k.trim().toLowerCase() === nh,
+        );
+        urls = hit?.[1];
+      }
+    }
+    if (urls?.length) out[colour] = [...urls];
+  }
+  return out;
+}
+
+function displayNameForActor(user: User): string {
+  const u = user as User & {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+  };
+  const parts = [u.firstName, u.lastName].filter(
+    (p): p is string => typeof p === 'string' && p.trim().length > 0,
+  );
+  const joined = parts.join(' ').trim();
+  if (joined) return joined.slice(0, 200);
+  if (u.email?.trim()) return u.email.trim().slice(0, 200);
+  return u.id.slice(0, 8);
+}
+
+export type AdminProductListQuery = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  /** When empty or omitted, all categories. */
+  categorySlugs?: string[];
+  status?: 'all' | 'active' | 'archived';
 };
 
 @Injectable()
@@ -22,28 +94,10 @@ export class CatalogueService {
     private readonly catRepo: Repository<ProductCategory>,
     @InjectRepository(Product)
     private readonly prodRepo: Repository<Product>,
-    @InjectRepository(ProductBranchPricing)
-    private readonly branchPriceRepo: Repository<ProductBranchPricing>,
   ) {}
 
-  async listCategories(branchId?: string) {
-    if (!branchId?.trim()) {
-      return this.catRepo.find({ order: { sortOrder: 'ASC', name: 'ASC' } });
-    }
-
-    const branchFilter = JSON.stringify([branchId.trim()]);
-    return this.catRepo
-      .createQueryBuilder('c')
-      .distinct(true)
-      .innerJoin(Product, 'p', 'p.categoryId = c.id')
-      .where('p.isActive = :active', { active: true })
-      .andWhere(
-        '(p.branchAvailability IS NULL OR p.branchAvailability @> CAST(:branchFilter AS jsonb))',
-        { branchFilter },
-      )
-      .orderBy('c.sortOrder', 'ASC')
-      .addOrderBy('c.name', 'ASC')
-      .getMany();
+  listCategories() {
+    return this.catRepo.find({ order: { sortOrder: 'ASC', name: 'ASC' } });
   }
 
   createCategory(dto: CreateCategoryDto) {
@@ -58,18 +112,7 @@ export class CatalogueService {
 
   /** Idempotent seed for storefront navigation — safe to call on every boot. */
   async ensureDefaultCategories() {
-    const defaults: { name: string; slug: string; sortOrder: number }[] = [
-      { name: 'Apparel', slug: 'apparel', sortOrder: 10 },
-      { name: 'Drinkware', slug: 'drinkware', sortOrder: 20 },
-      { name: 'Bags', slug: 'bags', sortOrder: 30 },
-      { name: 'Stationery', slug: 'stationery', sortOrder: 40 },
-      { name: 'Office', slug: 'office', sortOrder: 50 },
-      { name: 'Awards', slug: 'awards', sortOrder: 60 },
-      { name: 'Promo & events', slug: 'promo', sortOrder: 70 },
-      { name: 'Tech accessories', slug: 'tech_accessories', sortOrder: 80 },
-      { name: 'Corporate gifting', slug: 'corporate_gifting', sortOrder: 90 },
-    ];
-    for (const row of defaults) {
+    for (const row of CANONICAL_CATEGORIES) {
       const existing = await this.catRepo.findOne({
         where: { slug: row.slug },
       });
@@ -102,13 +145,6 @@ export class CatalogueService {
       .leftJoinAndSelect('p.category', 'c')
       .where('p.isActive = :active', { active: true });
 
-    if (q.branchId?.trim()) {
-      qb.andWhere(
-        '(p.branchAvailability IS NULL OR p.branchAvailability @> CAST(:branchFilter AS jsonb))',
-        { branchFilter: JSON.stringify([q.branchId.trim()]) },
-      );
-    }
-
     if (q.categorySlug) {
       qb.andWhere('c.slug = :slug', { slug: q.categorySlug });
     }
@@ -122,6 +158,54 @@ export class CatalogueService {
     return qb.getMany();
   }
 
+  /**
+   * Admin catalogue — paginated search, optional category + active/archived filter.
+   */
+  async listProductsAdminPaged(q: AdminProductListQuery) {
+    const page = Math.max(1, Math.floor(Number(q.page) || 1));
+    const limit = Math.min(100, Math.max(1, Math.floor(Number(q.limit) || 20)));
+    const status = q.status ?? 'all';
+
+    const applyFilters = (qb: SelectQueryBuilder<Product>) => {
+      if (status === 'active') {
+        qb.andWhere('p.isActive = :ia', { ia: true });
+      } else if (status === 'archived') {
+        qb.andWhere('p.isActive = :ia', { ia: false });
+      }
+      const slugs = (q.categorySlugs ?? [])
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      if (slugs.length === 1) {
+        qb.andWhere('c.slug = :slug', { slug: slugs[0] });
+      } else if (slugs.length > 1) {
+        qb.andWhere('c.slug IN (:...slugs)', { slugs });
+      }
+      if (q.search?.trim()) {
+        const s = `%${q.search.trim().toLowerCase()}%`;
+        qb.andWhere(
+          '(LOWER(p.name) LIKE :s OR LOWER(p.sku) LIKE :s OR LOWER(COALESCE(p.description, \'\')) LIKE :s OR LOWER(c.name) LIKE :s OR LOWER(c.slug) LIKE :s OR LOWER(COALESCE(p.createdByDisplayName, \'\')) LIKE :s)',
+          { s },
+        );
+      }
+    };
+
+    const countQb = this.prodRepo
+      .createQueryBuilder('p')
+      .leftJoin('p.category', 'c');
+    applyFilters(countQb);
+    const total = await countQb.getCount();
+
+    const listQb = this.prodRepo
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.category', 'c');
+    applyFilters(listQb);
+    listQb.orderBy('p.updatedAt', 'DESC');
+    listQb.skip((page - 1) * limit).take(limit);
+    const items = await listQb.getMany();
+
+    return { items, total, page, limit };
+  }
+
   async getProduct(id: string) {
     const p = await this.prodRepo.findOne({
       where: { id, isActive: true },
@@ -131,7 +215,8 @@ export class CatalogueService {
     return p;
   }
 
-  createProduct(dto: CreateProductDto) {
+  createProduct(dto: CreateProductDto, actor?: User) {
+    const dn = actor ? displayNameForActor(actor) : null;
     const p = this.prodRepo.create({
       sku: dto.sku.trim(),
       name: dto.name.trim(),
@@ -140,6 +225,8 @@ export class CatalogueService {
       basePrice: dto.basePrice,
       bulkTiers: dto.bulkTiers ?? [],
       images: dto.images ?? [],
+      imagesByColour: normalizeImagesByColour(dto.imagesByColour ?? {}),
+      customSections: dto.customSections ?? [],
       printAreas: (dto.printAreas as Product['printAreas']) ?? [],
       availableColours: dto.availableColours ?? [],
       availableSizes: dto.availableSizes ?? [],
@@ -150,12 +237,25 @@ export class CatalogueService {
       supportsDesignerMarketplace: dto.supportsDesignerMarketplace ?? true,
       gstRate: dto.gstRate ?? 18,
       isActive: dto.isActive ?? true,
-      branchAvailability: dto.branchAvailability ?? null,
+      tags: dto.tags ?? [],
+      trackInventory: dto.trackInventory ?? false,
+      stockQuantity:
+        dto.trackInventory &&
+        dto.stockQuantity !== undefined &&
+        dto.stockQuantity !== null
+          ? Number(dto.stockQuantity)
+          : null,
+      restockNote: dto.restockNote?.trim() ?? null,
+      branchAvailability: null,
+      createdByUserId: actor?.id ?? null,
+      createdByDisplayName: dn,
+      updatedByUserId: actor?.id ?? null,
+      updatedByDisplayName: dn,
     });
     return this.prodRepo.save(p);
   }
 
-  async updateProduct(id: string, dto: UpdateProductDto) {
+  async updateProduct(id: string, dto: UpdateProductDto, actor?: User) {
     const p = await this.prodRepo.findOne({ where: { id } });
     if (!p) throw new NotFoundException('Product not found');
     if (dto.sku !== undefined) p.sku = dto.sku.trim();
@@ -166,10 +266,23 @@ export class CatalogueService {
     if (dto.basePrice !== undefined) p.basePrice = dto.basePrice;
     if (dto.bulkTiers !== undefined) p.bulkTiers = dto.bulkTiers;
     if (dto.images !== undefined) p.images = dto.images;
+    if (dto.customSections !== undefined) p.customSections = dto.customSections as Product['customSections'];
     if (dto.printAreas !== undefined)
       p.printAreas = dto.printAreas as Product['printAreas'];
-    if (dto.availableColours !== undefined)
-      p.availableColours = dto.availableColours;
+    if (dto.availableColours !== undefined) p.availableColours = dto.availableColours;
+
+    const colourList = dto.availableColours ?? p.availableColours;
+    if (dto.imagesByColour !== undefined) {
+      p.imagesByColour = pruneImagesByColour(
+        normalizeImagesByColour(dto.imagesByColour),
+        colourList,
+      );
+    } else if (dto.availableColours !== undefined) {
+      p.imagesByColour = pruneImagesByColour(
+        normalizeImagesByColour(p.imagesByColour ?? {}),
+        colourList,
+      );
+    }
     if (dto.availableSizes !== undefined) p.availableSizes = dto.availableSizes;
     if (dto.minOrderQty !== undefined) p.minOrderQty = dto.minOrderQty;
     if (dto.productionTimeDays !== undefined)
@@ -181,16 +294,61 @@ export class CatalogueService {
       p.supportsDesignerMarketplace = dto.supportsDesignerMarketplace;
     if (dto.gstRate !== undefined) p.gstRate = dto.gstRate;
     if (dto.isActive !== undefined) p.isActive = dto.isActive;
-    if (dto.branchAvailability !== undefined)
-      p.branchAvailability = dto.branchAvailability ?? null;
+    if (dto.tags !== undefined) p.tags = dto.tags;
+    if (dto.trackInventory !== undefined) {
+      p.trackInventory = dto.trackInventory;
+      if (!dto.trackInventory) {
+        p.stockQuantity = null;
+      }
+    }
+    if (dto.stockQuantity !== undefined)
+      p.stockQuantity =
+        dto.stockQuantity === null ? null : Number(dto.stockQuantity);
+    if (dto.restockNote !== undefined)
+      p.restockNote = dto.restockNote?.trim() ?? null;
+    p.branchAvailability = null;
+    if (actor) {
+      p.updatedByUserId = actor.id;
+      p.updatedByDisplayName = displayNameForActor(actor);
+    }
     return this.prodRepo.save(p);
   }
 
-  async archiveProduct(id: string) {
+  async archiveProduct(id: string, actor?: User) {
     const p = await this.prodRepo.findOne({ where: { id } });
     if (!p) throw new NotFoundException('Product not found');
     p.isActive = false;
+    if (actor) {
+      p.updatedByUserId = actor.id;
+      p.updatedByDisplayName = displayNameForActor(actor);
+    }
     return this.prodRepo.save(p);
+  }
+
+  async restoreProduct(id: string, actor?: User) {
+    const p = await this.prodRepo.findOne({ where: { id } });
+    if (!p) throw new NotFoundException('Product not found');
+    p.isActive = true;
+    if (actor) {
+      p.updatedByUserId = actor.id;
+      p.updatedByDisplayName = displayNameForActor(actor);
+    }
+    return this.prodRepo.save(p);
+  }
+
+  /**
+   * Removes the product row. Order line items keep history with productId nulled (FK).
+   * Branch pricing cascades. Designs and designer jobs use loose productId columns — cleared first.
+   */
+  async deleteProductPermanent(id: string) {
+    const p = await this.prodRepo.findOne({ where: { id } });
+    if (!p) throw new NotFoundException('Product not found');
+    await this.prodRepo.manager.transaction(async (manager) => {
+      await manager.update(Design, { productId: id }, { productId: null });
+      await manager.update(DesignerJob, { productId: id }, { productId: null });
+      await manager.delete(Product, id);
+    });
+    return { deleted: true, id };
   }
 
   /**
@@ -234,6 +392,7 @@ export class CatalogueService {
             basePrice,
             bulkTiers: [],
             images: [],
+            customSections: [],
             printAreas: [],
             availableColours: [],
             availableSizes: [],
@@ -244,7 +403,15 @@ export class CatalogueService {
             supportsDesignerMarketplace: true,
             gstRate: 18,
             isActive: true,
+            tags: [],
+            trackInventory: false,
+            stockQuantity: null,
+            restockNote: null,
             branchAvailability: null,
+            createdByUserId: null,
+            createdByDisplayName: null,
+            updatedByUserId: null,
+            updatedByDisplayName: null,
           }),
         );
         created += 1;
@@ -263,37 +430,4 @@ export class CatalogueService {
     return p;
   }
 
-  listBranchPricing(productId: string) {
-    return this.branchPriceRepo.find({
-      where: { productId },
-      relations: ['branch'],
-      order: { createdAt: 'ASC' },
-    });
-  }
-
-  async upsertBranchPricing(
-    productId: string,
-    branchId: string,
-    priceOverride: number,
-  ) {
-    await this.requireProductRow(productId);
-    let row = await this.branchPriceRepo.findOne({
-      where: { productId, branchId },
-    });
-    if (!row) {
-      row = this.branchPriceRepo.create({
-        productId,
-        branchId,
-        priceOverride,
-      });
-    } else {
-      row.priceOverride = priceOverride;
-    }
-    return this.branchPriceRepo.save(row);
-  }
-
-  async deleteBranchPricing(productId: string, branchId: string) {
-    await this.branchPriceRepo.delete({ productId, branchId });
-    return { deleted: true };
-  }
 }
