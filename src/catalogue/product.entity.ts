@@ -44,6 +44,14 @@ export class Product {
   @Column({ type: 'jsonb', nullable: true })
   imagesByColour: Record<string, string[]> | null;
 
+  /** Blank / template images (no existing designs) for the canvas editor — products without colour variants. */
+  @Column('jsonb', { default: [] })
+  blankImages: string[];
+
+  /** Blank / template image URLs per colour for the design editor canvas background. */
+  @Column({ type: 'jsonb', nullable: true })
+  blankImagesByColour: Record<string, string[]> | null;
+
   /** Category-specific custom sections and field groups shown in admin/storefront forms. */
   @Column('jsonb', { default: [] })
   customSections: Record<string, unknown>[];
@@ -51,6 +59,18 @@ export class Product {
   /** [{ view, x, y, width, height }] */
   @Column('jsonb', { default: [] })
   printAreas: { view: string; x: number; y: number; width: number; height: number }[];
+
+  /** Which sides/views are printable, e.g. ["front","back"]. Default to ["front"]. */
+  @Column('jsonb', { default: '["front"]' })
+  printSides: string[];
+
+  /** Per-side per-colour blank template images: { sideId: { colourKey: [urls] } }. */
+  @Column({ type: 'jsonb', nullable: true })
+  blankImagesBySideColour: Record<string, Record<string, string[]>> | null;
+
+  /** Per-side per-colour storefront/display images: { sideId: { colourKey: [urls] } }. */
+  @Column({ type: 'jsonb', nullable: true })
+  imagesBySideColour: Record<string, Record<string, string[]>> | null;
 
   @Column('jsonb', { default: [] })
   availableColours: string[];

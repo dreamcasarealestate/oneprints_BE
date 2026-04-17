@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Design } from '../design/design.entity';
@@ -215,7 +215,7 @@ export class CatalogueService {
     return p;
   }
 
-  createProduct(dto: CreateProductDto, actor?: User) {
+  async createProduct(dto: CreateProductDto, actor?: User) {
     const dn = actor ? displayNameForActor(actor) : null;
     const p = this.prodRepo.create({
       sku: dto.sku.trim(),
@@ -228,6 +228,13 @@ export class CatalogueService {
       imagesByColour: normalizeImagesByColour(dto.imagesByColour ?? {}),
       customSections: dto.customSections ?? [],
       printAreas: (dto.printAreas as Product['printAreas']) ?? [],
+      printSides: dto.printSides?.length ? dto.printSides : ['front'],
+      blankImages: dto.blankImages ?? [],
+      blankImagesByColour: dto.blankImagesByColour
+        ? normalizeImagesByColour(dto.blankImagesByColour)
+        : null,
+      blankImagesBySideColour: dto.blankImagesBySideColour ?? null,
+      imagesBySideColour: dto.imagesBySideColour ?? null,
       availableColours: dto.availableColours ?? [],
       availableSizes: dto.availableSizes ?? [],
       minOrderQty: dto.minOrderQty ?? 1,
@@ -252,7 +259,16 @@ export class CatalogueService {
       updatedByUserId: actor?.id ?? null,
       updatedByDisplayName: dn,
     });
-    return this.prodRepo.save(p);
+    try {
+      return await this.prodRepo.save(p);
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new ConflictException(
+          `A product with SKU "${dto.sku.trim()}" already exists.`,
+        );
+      }
+      throw err;
+    }
   }
 
   async updateProduct(id: string, dto: UpdateProductDto, actor?: User) {
@@ -283,6 +299,18 @@ export class CatalogueService {
         colourList,
       );
     }
+    if (dto.printSides !== undefined)
+      p.printSides = dto.printSides?.length ? dto.printSides : ['front'];
+    if (dto.blankImages !== undefined) p.blankImages = dto.blankImages;
+    if (dto.blankImagesByColour !== undefined) {
+      p.blankImagesByColour = dto.blankImagesByColour
+        ? normalizeImagesByColour(dto.blankImagesByColour)
+        : null;
+    }
+    if (dto.blankImagesBySideColour !== undefined)
+      p.blankImagesBySideColour = dto.blankImagesBySideColour ?? null;
+    if (dto.imagesBySideColour !== undefined)
+      p.imagesBySideColour = dto.imagesBySideColour ?? null;
     if (dto.availableSizes !== undefined) p.availableSizes = dto.availableSizes;
     if (dto.minOrderQty !== undefined) p.minOrderQty = dto.minOrderQty;
     if (dto.productionTimeDays !== undefined)

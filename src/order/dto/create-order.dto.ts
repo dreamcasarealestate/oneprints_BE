@@ -82,6 +82,16 @@ export class OrderLineItemInputDto {
   @IsString()
   color?: string;
 
+  @ApiPropertyOptional({ description: 'Original product display image URL for the selected colour.' })
+  @IsOptional()
+  @IsString()
+  productImage?: string;
+
+  @ApiPropertyOptional({ description: 'User customized design thumbnail URL (canvas export).' })
+  @IsOptional()
+  @IsString()
+  customizedImage?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()

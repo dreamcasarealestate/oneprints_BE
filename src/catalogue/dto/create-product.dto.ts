@@ -71,6 +71,21 @@ export class CreateProductDto {
   @IsObject()
   imagesByColour?: Record<string, string[] | string>;
 
+  @ApiPropertyOptional({ type: [String], description: 'Blank / template images (no existing designs) for the design editor — products without colour variants.' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  blankImages?: string[];
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'array', items: { type: 'string' } },
+    description: 'Blank / template image URLs per colour key for the design editor canvas background.',
+  })
+  @IsOptional()
+  @IsObject()
+  blankImagesByColour?: Record<string, string[] | string>;
+
   @ApiPropertyOptional({
     type: [Object],
     description: 'Category-specific custom sections and form fields saved with the product.',
@@ -84,6 +99,29 @@ export class CreateProductDto {
   @IsOptional()
   @IsArray()
   printAreas?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Printable sides/views, e.g. ["front","back"]. Defaults to ["front"].' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  printSides?: string[];
+
+  @ApiPropertyOptional({
+    type: 'object',
+    description: 'Per-side per-colour blank template images: { sideId: { colourKey: [urls] } }.',
+  })
+  @IsOptional()
+  @IsObject()
+  blankImagesBySideColour?: Record<string, Record<string, string[]>>;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    description:
+      'Per-side per-colour storefront/display images: { sideId: { colourKey: [urls] } }.',
+  })
+  @IsOptional()
+  @IsObject()
+  imagesBySideColour?: Record<string, Record<string, string[]>>;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()

@@ -44,6 +44,14 @@ export class OrderItem {
   @Column({ nullable: true })
   color: string | null;
 
+  /** Original product display image URL for the selected colour. */
+  @Column('text', { nullable: true })
+  productImage: string | null;
+
+  /** User's customized design thumbnail URL (canvas export). */
+  @Column('text', { nullable: true })
+  customizedImage: string | null;
+
   @Column('jsonb', { nullable: true })
   designData: Record<string, unknown> | null;
 
