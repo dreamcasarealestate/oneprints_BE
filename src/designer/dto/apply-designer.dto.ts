@@ -59,4 +59,28 @@ export class ApplyDesignerDto {
   @IsInt()
   @Min(0)
   yearsExperience?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Login password for the designer. Required when no customer account exists for this email so the approved designer can sign in.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
 }

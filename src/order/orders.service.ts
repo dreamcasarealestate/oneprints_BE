@@ -72,9 +72,16 @@ export class OrdersService {
       dto.shippingAddress?.pinCode?.replace(/\s/g, '') ||
       dto.pinCode?.replace(/\s/g, '') ||
       '';
-    const branch = pin
-      ? await this.branchesService.assignBranchForPinCode(pin)
-      : null;
+    const shipLat = dto.shippingAddress?.latitude;
+    const shipLng = dto.shippingAddress?.longitude;
+    const branch =
+      pin || typeof shipLat === 'number' || typeof shipLng === 'number'
+        ? await this.branchesService.assignBranchForOrder({
+            pinCode: pin,
+            latitude: typeof shipLat === 'number' ? shipLat : null,
+            longitude: typeof shipLng === 'number' ? shipLng : null,
+          })
+        : null;
 
     const items =
       dto.items && dto.items.length > 0

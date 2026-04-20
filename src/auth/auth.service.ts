@@ -177,6 +177,7 @@ export class AuthService {
     lastName: string;
     username: string;
     phoneNumber: string;
+    profileImage?: string | null;
     branchId?: string | null;
   }) {
     const accessTtl =
@@ -217,6 +218,7 @@ export class AuthService {
         lastName: user.lastName,
         username: user.username,
         phoneNumber: user.phoneNumber,
+        profileImage: user.profileImage ?? null,
         branchId: user.branchId ?? null,
       },
     };

@@ -15,6 +15,7 @@ import { User } from '../user/user.entity';
 export type ProductListQuery = {
   categorySlug?: string;
   search?: string;
+  limit?: number;
 };
 
 function normalizeImagesByColour(raw: unknown): Record<string, string[]> {
@@ -155,6 +156,9 @@ export class CatalogueService {
       );
     }
     qb.orderBy('p.name', 'ASC');
+    if (q.limit && q.limit > 0) {
+      qb.take(Math.min(q.limit, 200));
+    }
     return qb.getMany();
   }
 

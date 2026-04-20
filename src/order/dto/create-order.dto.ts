@@ -2,6 +2,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsLatitude,
+  IsLongitude,
   IsNumber,
   IsObject,
   IsOptional,
@@ -49,6 +51,21 @@ export class ShippingAddressInputDto {
   @ApiProperty()
   @IsString()
   pinCode: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional shipping-address latitude (e.g. captured via browser geolocation). Used to pick the nearest branch when multiple branches share the same pin-code prefix.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsLatitude()
+  latitude?: number;
+
+  @ApiPropertyOptional({ description: 'Optional shipping-address longitude.' })
+  @IsOptional()
+  @IsNumber()
+  @IsLongitude()
+  longitude?: number;
 }
 
 export class OrderLineItemInputDto {
