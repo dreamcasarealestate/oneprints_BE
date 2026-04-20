@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -13,6 +14,7 @@ import { Role } from './role.entity';
 import { UserKind } from './user-kind.enum';
 import { userKindToRoleKey } from './role-key.util';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { isBranchAdminRole, isGlobalOperationRole } from './roles.util';
 import { normalizeKnownUserKind, normalizeUserKind } from './user-kind.util';
@@ -295,6 +297,7 @@ export class UsersService {
         'username',
         'email',
         'phoneNumber',
+        'profileImage',
         'userKind',
         'roleId',
         'branchId',
@@ -462,6 +465,84 @@ export class UsersService {
       }
       withPassword.passwordHash = await bcrypt.hash(dto.password, 10);
       await this.usersRepo.save(withPassword);
+    }
+
+    const saved = await this.usersRepo.save(user);
+    return this.toSafeUser(saved);
+  }
+
+  /**
+   * Self-service profile update. Any signed-in user may edit their own basic
+   * fields (name, username, email, phone, avatar) and optionally change their
+   * password when they provide the current one. Role / branch changes are
+   * not allowed here — use the admin endpoints for that.
+   */
+  async updateOwnProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.findOneOrFail(userId);
+
+    if (dto.firstName !== undefined) {
+      const trimmed = dto.firstName.trim();
+      if (!trimmed) {
+        throw new BadRequestException('First name cannot be empty');
+      }
+      user.firstName = trimmed;
+    }
+
+    if (dto.lastName !== undefined) {
+      const trimmed = dto.lastName.trim();
+      if (!trimmed) {
+        throw new BadRequestException('Last name cannot be empty');
+      }
+      user.lastName = trimmed;
+    }
+
+    if (dto.phoneNumber !== undefined) {
+      user.phoneNumber = dto.phoneNumber.trim();
+    }
+
+    if (dto.profileImage !== undefined) {
+      const trimmed = dto.profileImage?.trim();
+      user.profileImage = trimmed ? trimmed : null;
+    }
+
+    const nextUsername = dto.username?.trim();
+    if (nextUsername && nextUsername !== user.username) {
+      await this.ensureUsernameAvailable(nextUsername);
+      user.username = nextUsername;
+    }
+
+    const nextEmail = dto.email?.trim().toLowerCase();
+    const wantsEmailChange = !!nextEmail && nextEmail !== user.email;
+    const wantsPasswordChange = !!dto.password;
+
+    if (wantsEmailChange || wantsPasswordChange) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException(
+          'Current password is required to change email or password',
+        );
+      }
+      const withPassword = await this.findByEmailWithPassword(user.email);
+      if (!withPassword) {
+        throw new NotFoundException('User not found');
+      }
+      const ok = await bcrypt.compare(
+        dto.currentPassword,
+        withPassword.passwordHash,
+      );
+      if (!ok) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+
+      if (wantsEmailChange && nextEmail) {
+        await this.ensureEmailAvailable(nextEmail);
+        user.email = nextEmail;
+      }
+
+      if (wantsPasswordChange && dto.password) {
+        withPassword.passwordHash = await bcrypt.hash(dto.password, 10);
+        withPassword.email = user.email;
+        await this.usersRepo.save(withPassword);
+      }
     }
 
     const saved = await this.usersRepo.save(user);

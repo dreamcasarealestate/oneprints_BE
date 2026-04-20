@@ -33,6 +33,10 @@ export class User {
   @Column()
   phoneNumber: string;
 
+  /** Public URL to the user's profile image on S3. Optional — not set on register. */
+  @Column({ type: 'varchar', length: 1024, nullable: true })
+  profileImage: string | null;
+
   @Column({ type: 'varchar', length: 32, default: UserKind.USER })
   userKind: UserKind;
 

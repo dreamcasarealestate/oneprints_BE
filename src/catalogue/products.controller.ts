@@ -35,8 +35,10 @@ export class ProductsController {
   list(
     @Query('category') categorySlug?: string,
     @Query('search') search?: string,
+    @Query('limit') limitRaw?: string,
   ) {
-    return this.catalogue.listProducts({ categorySlug, search });
+    const limit = limitRaw ? Math.floor(Number(limitRaw)) : undefined;
+    return this.catalogue.listProducts({ categorySlug, search, limit });
   }
 
   @Get(':id')

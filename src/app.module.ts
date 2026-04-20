@@ -18,6 +18,7 @@ import { AddressesModule } from './address/addresses.module';
 import { ReviewsModule } from './review/reviews.module';
 import { CorporateModule } from './corporate/corporate.module';
 import { FavoritesModule } from './favorites/favorites.module';
+import { S3Module } from './s3/s3.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { FavoritesModule } from './favorites/favorites.module';
     AddressesModule,
     ReviewsModule,
     CorporateModule,
+    S3Module,
   ],
   controllers: [AppController],
   providers: [AppService],

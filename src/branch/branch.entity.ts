@@ -46,6 +46,17 @@ export class Branch {
   @Column('jsonb', { default: [] })
   pinCodePrefixes: string[];
 
+  /**
+   * Optional branch coordinates. When both the branch and the customer's
+   * shipping address expose lat/lng, the closest branch (haversine) wins the
+   * tiebreaker after longest-prefix pin matching.
+   */
+  @Column('double precision', { nullable: true })
+  latitude: number | null;
+
+  @Column('double precision', { nullable: true })
+  longitude: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

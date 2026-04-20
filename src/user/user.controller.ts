@@ -25,6 +25,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
 import { USER_MANAGEMENT_ROLES } from './roles.util';
@@ -35,6 +36,37 @@ import { USER_MANAGEMENT_ROLES } from './roles.util';
 @ApiBearerAuth('access-token')
 export class UserController {
   constructor(private readonly usersService: UsersService) {}
+
+  @Get('me/profile')
+  @ApiOperation({ summary: 'Get the signed-in user profile' })
+  async getOwnProfile(@CurrentUser() actor: User) {
+    const user = await this.usersService.findOneOrFail(actor.id);
+    const { passwordHash: _pwd, ...safe } = user as User & {
+      passwordHash?: string;
+    };
+    void _pwd;
+    return safe;
+  }
+
+  @Patch('me/profile')
+  @ApiOperation({ summary: 'Update the signed-in user profile' })
+  @ApiBody({ type: UpdateProfileDto })
+  updateOwnProfile(
+    @CurrentUser() actor: User,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.usersService.updateOwnProfile(actor.id, dto);
+  }
+
+  @Put('me/profile')
+  @ApiOperation({ summary: 'Update the signed-in user profile (PUT)' })
+  @ApiBody({ type: UpdateProfileDto })
+  updateOwnProfilePut(
+    @CurrentUser() actor: User,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.usersService.updateOwnProfile(actor.id, dto);
+  }
 
   @Post()
   // @Roles(...USER_MANAGEMENT_ROLES)

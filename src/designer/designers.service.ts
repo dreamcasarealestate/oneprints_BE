@@ -20,6 +20,7 @@ import { User } from '../user/user.entity';
 import { NotificationsService } from '../notification/notifications.service';
 import { UsersService } from '../user/users.service';
 import { DesignerProfileStatus } from './designer.entity';
+import { UserKind } from '../user/user-kind.enum';
 
 @Injectable()
 export class DesignersService {
@@ -36,10 +37,37 @@ export class DesignersService {
     private readonly usersService: UsersService,
   ) {}
 
-  apply(dto: ApplyDesignerDto) {
+  async apply(dto: ApplyDesignerDto) {
+    const email = dto.email.trim().toLowerCase();
+
+    // If the applicant sent a password and there is no user account for this
+    // email yet, provision a customer user so they can sign in once approved.
+    // If a user already exists we leave credentials untouched - they will log
+    // in with their existing password.
+    if (dto.password && dto.password.trim()) {
+      const existing = await this.usersService.findByEmail(email);
+      if (!existing) {
+        const fallbackName = dto.displayName.trim().split(/\s+/);
+        const firstName = (dto.firstName ?? fallbackName[0] ?? 'Designer').trim();
+        const lastName = (
+          dto.lastName ??
+          (fallbackName.length > 1 ? fallbackName.slice(1).join(' ') : 'User')
+        ).trim() || 'User';
+        const phoneNumber = (dto.phoneNumber ?? '').trim() || 'NA';
+        await this.usersService.createManagedUser({
+          firstName,
+          lastName,
+          email,
+          password: dto.password,
+          phoneNumber,
+          userKind: UserKind.USER,
+        });
+      }
+    }
+
     const d = this.designerRepo.create({
       displayName: dto.displayName.trim(),
-      email: dto.email.trim().toLowerCase(),
+      email,
       city: dto.city?.trim() ?? null,
       bio: dto.bio?.trim() ?? null,
       specializations: dto.specializations ?? [],

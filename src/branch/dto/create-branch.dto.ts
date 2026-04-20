@@ -3,6 +3,9 @@ import {
   IsArray,
   IsBoolean,
   IsEmail,
+  IsLatitude,
+  IsLongitude,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -65,4 +68,20 @@ export class CreateBranchDto {
   @IsArray()
   @IsString({ each: true })
   pinCodePrefixes?: string[];
+
+  @ApiPropertyOptional({
+    example: 17.385,
+    description:
+      'Optional branch latitude. When provided together with longitude, used as a tiebreaker against the shipping address coordinates.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsLatitude()
+  latitude?: number;
+
+  @ApiPropertyOptional({ example: 78.4867 })
+  @IsOptional()
+  @IsNumber()
+  @IsLongitude()
+  longitude?: number;
 }
