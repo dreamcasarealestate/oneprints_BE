@@ -9,6 +9,18 @@ import {
 import { DesignerJob } from './designer-job.entity';
 import { User } from '../user/user.entity';
 
+export type DesignerMessageAttachmentKind = 'image' | 'video' | 'file';
+
+export type DesignerMessageAttachment = {
+  url: string;
+  name: string;
+  mime: string;
+  size?: number;
+  kind: DesignerMessageAttachmentKind;
+  /** When true, this attachment is the designer's final deliverable (for add-to-cart). */
+  isFinal?: boolean;
+};
+
 @Entity('designer_messages')
 export class DesignerMessage {
   @PrimaryGeneratedColumn('uuid')
@@ -28,8 +40,11 @@ export class DesignerMessage {
   @JoinColumn({ name: 'senderId' })
   sender: User;
 
-  @Column('text')
+  @Column('text', { default: '' })
   body: string;
+
+  @Column('jsonb', { default: [] })
+  attachments: DesignerMessageAttachment[];
 
   @CreateDateColumn()
   createdAt: Date;

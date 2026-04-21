@@ -268,12 +268,15 @@ export class DesignersService {
     if (!d) throw new NotFoundException('Designer not found');
     if (d.userId !== user.id) throw new ForbiddenException();
     if (dto.displayName !== undefined) d.displayName = dto.displayName.trim();
+    if (dto.city !== undefined) d.city = dto.city?.trim() ?? null;
     if (dto.bio !== undefined) d.bio = dto.bio?.trim() ?? null;
     if (dto.specializations !== undefined)
       d.specializations = dto.specializations;
     if (dto.portfolioUrls !== undefined) d.portfolioUrls = dto.portfolioUrls;
     if (dto.baseRateInr !== undefined) d.baseRateInr = dto.baseRateInr;
     if (dto.rateType !== undefined) d.rateType = dto.rateType;
+    if (dto.yearsExperience !== undefined)
+      d.yearsExperience = dto.yearsExperience;
     if (dto.availability !== undefined) d.availability = dto.availability;
     if (dto.turnaroundText !== undefined)
       d.turnaroundText = dto.turnaroundText?.trim() ?? null;
@@ -404,36 +407,152 @@ export class DesignersService {
 
   async postMessage(jobId: string, userId: string, dto: DesignerMessageDto) {
     await this.assertJobParticipant(jobId, userId);
+
+    const body = (dto.body ?? '').trim();
+    const attachments = (dto.attachments ?? []).map((a) => ({
+      url: a.url,
+      name: a.name,
+      mime: a.mime,
+      size: a.size,
+      kind: a.kind,
+      isFinal: !!a.isFinal,
+    }));
+
+    if (!body && attachments.length === 0) {
+      throw new BadRequestException(
+        'A message must include text or at least one attachment.',
+      );
+    }
+
     const msg = this.msgRepo.create({
       jobId,
       senderId: userId,
-      body: dto.body.trim(),
+      body,
+      attachments,
     });
     const saved = await this.msgRepo.save(msg);
+
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (job) {
       const designer = await this.designerRepo.findOne({
         where: { id: job.designerId },
       });
+      const preview = body
+        ? body.slice(0, 120)
+        : attachments.length
+          ? `Sent ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`
+          : 'New message';
       if (userId === job.customerUserId && designer?.userId) {
         await this.notifications.create(
           designer.userId,
           'designer_message',
           'New message on design job',
-          dto.body.slice(0, 120),
-          { jobId },
+          preview,
+          { jobId, messageId: saved.id },
         );
       } else if (designer?.userId === userId) {
         await this.notifications.create(
           job.customerUserId,
           'designer_message',
           'New message on design job',
-          dto.body.slice(0, 120),
-          { jobId },
+          preview,
+          { jobId, messageId: saved.id },
         );
       }
     }
     return saved;
+  }
+
+  /**
+   * List the jobs the current user is a participant in.
+   *  - Customers see jobs where customerUserId === user.id
+   *  - Linked designers see jobs where designerId === their profile id
+   */
+  async listMyJobs(userId: string, status?: string) {
+    const designer = await this.designerForUser(userId);
+
+    const qb = this.jobRepo
+      .createQueryBuilder('j')
+      .orderBy('j.updatedAt', 'DESC');
+
+    if (designer) {
+      qb.where('(j.customerUserId = :u OR j.designerId = :d)', {
+        u: userId,
+        d: designer.id,
+      });
+    } else {
+      qb.where('j.customerUserId = :u', { u: userId });
+    }
+
+    if (status && status !== 'all') {
+      qb.andWhere('j.status = :status', { status });
+    }
+
+    const jobs = await qb.getMany();
+    if (!jobs.length) return [];
+
+    const designerIds = [...new Set(jobs.map((j) => j.designerId))];
+    const customerIds = [...new Set(jobs.map((j) => j.customerUserId))];
+
+    const [designers, customers] = await Promise.all([
+      designerIds.length
+        ? this.designerRepo
+            .createQueryBuilder('d')
+            .whereInIds(designerIds)
+            .getMany()
+        : Promise.resolve([]),
+      customerIds.length
+        ? Promise.all(customerIds.map((id) => this.usersService.findById(id)))
+        : Promise.resolve([]),
+    ]);
+
+    const designerMap = new Map(designers.map((d) => [d.id, d]));
+    const customerMap = new Map(
+      customers
+        .filter((c): c is User => !!c)
+        .map((c) => [c.id, c]),
+    );
+
+    return jobs.map((j) => ({
+      ...j,
+      designer: designerMap.get(j.designerId) ?? null,
+      customer: customerMap.get(j.customerUserId)
+        ? this.publicUserSummary(customerMap.get(j.customerUserId)!)
+        : null,
+      viewerRole:
+        designer && j.designerId === designer.id ? 'designer' : 'customer',
+    }));
+  }
+
+  async getJobForUser(jobId: string, userId: string) {
+    const job = await this.assertJobParticipant(jobId, userId);
+    const [designer, customer] = await Promise.all([
+      this.designerRepo.findOne({ where: { id: job.designerId } }),
+      this.usersService.findById(job.customerUserId),
+    ]);
+    const linked = await this.designerForUser(userId);
+    return {
+      ...job,
+      designer,
+      customer: customer ? this.publicUserSummary(customer) : null,
+      viewerRole:
+        linked && job.designerId === linked.id ? 'designer' : 'customer',
+    };
+  }
+
+  private publicUserSummary(user: User) {
+    return {
+      id: user.id,
+      displayName:
+        this.userDisplayName(user) ||
+        user.username ||
+        user.email ||
+        'Customer',
+      email: user.email,
+      profileImage:
+        (user as unknown as { profileImage?: string | null }).profileImage ??
+        null,
+    };
   }
 
   private async assertJobParticipant(jobId: string, userId: string) {
