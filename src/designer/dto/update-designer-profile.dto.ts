@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -13,6 +14,11 @@ export class UpdateDesignerProfileDto {
   @IsOptional()
   @IsString()
   displayName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  city?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -41,6 +47,12 @@ export class UpdateDesignerProfileDto {
   @IsOptional()
   @IsIn(['hourly', 'project'])
   rateType?: 'hourly' | 'project';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  yearsExperience?: number;
 
   @ApiPropertyOptional({ enum: ['available', 'busy', 'on_leave'] })
   @IsOptional()

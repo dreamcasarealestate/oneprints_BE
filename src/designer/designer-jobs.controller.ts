@@ -6,9 +6,16 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { DesignersService } from './designers.service';
 import { CreateDesignerJobDto } from './dto/create-designer-job.dto';
 import { DesignerProofDto } from './dto/designer-proof.dto';
@@ -28,6 +35,25 @@ export class DesignerJobsController {
   @ApiOperation({ summary: 'Customer creates design job request' })
   create(@CurrentUser() user: User, @Body() dto: CreateDesignerJobDto) {
     return this.designers.createJob(user.id, dto);
+  }
+
+  @Get()
+  @ApiOperation({
+    summary:
+      'List jobs for the current user (customer sees their requests, linked designers see jobs assigned to them)',
+  })
+  @ApiQuery({ name: 'status', required: false })
+  listMine(@CurrentUser() user: User, @Query('status') status?: string) {
+    return this.designers.listMyJobs(user.id, status);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a single job (either participant)' })
+  getOne(
+    @CurrentUser() user: User,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.designers.getJobForUser(id, user.id);
   }
 
   @Put(':id/accept')

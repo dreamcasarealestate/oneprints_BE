@@ -19,6 +19,7 @@ import { ReviewsModule } from './review/reviews.module';
 import { CorporateModule } from './corporate/corporate.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { S3Module } from './s3/s3.module';
+import { ProductTemplatesModule } from './product-templates/product-templates.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { S3Module } from './s3/s3.module';
     ReviewsModule,
     CorporateModule,
     S3Module,
+    ProductTemplatesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
