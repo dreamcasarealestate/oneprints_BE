@@ -32,9 +32,18 @@ export class DesignerMessageAttachmentDto {
   @Min(0)
   size?: number;
 
-  @ApiProperty({ enum: ['image', 'video', 'file'] })
-  @IsIn(['image', 'video', 'file'])
-  kind: 'image' | 'video' | 'file';
+  @ApiPropertyOptional({
+    description:
+      'For audio/video recordings, duration in seconds (client-supplied).',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  durationSec?: number;
+
+  @ApiProperty({ enum: ['image', 'video', 'audio', 'file'] })
+  @IsIn(['image', 'video', 'audio', 'file'])
+  kind: 'image' | 'video' | 'audio' | 'file';
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -58,4 +67,10 @@ export class DesignerMessageDto {
   @ValidateNested({ each: true })
   @Type(() => DesignerMessageAttachmentDto)
   attachments?: DesignerMessageAttachmentDto[];
+
+  /** When set, this message is a quoted reply to another message. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  replyToMessageId?: string;
 }

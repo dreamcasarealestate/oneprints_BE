@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -103,5 +104,65 @@ export class DesignerJobsController {
     @Body() dto: DesignerMessageDto,
   ) {
     return this.designers.postMessage(id, user.id, dto);
+  }
+
+  @Post(':id/messages/read')
+  @ApiOperation({
+    summary:
+      'Mark all unread messages in this thread (sent by the other party) as read',
+  })
+  markRead(
+    @CurrentUser() user: User,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.designers.markMessagesRead(id, user.id);
+  }
+
+  @Post(':id/typing')
+  @ApiOperation({
+    summary:
+      'Notify the other participant that the current user is typing (ephemeral, not persisted)',
+  })
+  typing(
+    @CurrentUser() user: User,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.designers.emitTyping(id, user.id);
+  }
+
+  @Delete(':id/messages/:msgId')
+  @ApiOperation({
+    summary: 'Soft-delete one of my messages (WhatsApp-style "Delete for everyone")',
+  })
+  deleteMessage(
+    @CurrentUser() user: User,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('msgId', new ParseUUIDPipe()) msgId: string,
+  ) {
+    return this.designers.deleteMessage(id, user.id, msgId);
+  }
+
+  @Delete(':id')
+  @ApiOperation({
+    summary:
+      'Delete this conversation from my inbox (does not affect the other participant; auto-restores when a new message arrives)',
+  })
+  hideConversation(
+    @CurrentUser() user: User,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.designers.hideConversation(id, user.id);
+  }
+
+  @Delete(':id/messages')
+  @ApiOperation({
+    summary:
+      'Clear all messages in this conversation for both participants (keeps the job record)',
+  })
+  clearConversation(
+    @CurrentUser() user: User,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.designers.clearConversation(id, user.id);
   }
 }

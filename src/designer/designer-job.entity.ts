@@ -52,6 +52,15 @@ export class DesignerJob {
   @Column({ type: 'varchar', length: 24, default: 'requested' })
   status: DesignerJobStatus;
 
+  /** Per-user "delete chat" markers — WhatsApp-style: the conversation is hidden
+   * from the specific user's inbox, but the other party still sees it. When a
+   * new message arrives the hide flag is cleared automatically. */
+  @Column({ type: 'timestamptz', nullable: true })
+  hiddenByCustomerAt: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  hiddenByDesignerAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

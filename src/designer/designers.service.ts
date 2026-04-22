@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Designer } from './designer.entity';
 import { DesignerJob } from './designer-job.entity';
 import { DesignerMessage } from './designer-message.entity';
@@ -21,6 +21,7 @@ import { NotificationsService } from '../notification/notifications.service';
 import { UsersService } from '../user/users.service';
 import { DesignerProfileStatus } from './designer.entity';
 import { UserKind } from '../user/user-kind.enum';
+import { isValidApparelDesignerToken } from './apparel-designer-taxonomy';
 
 @Injectable()
 export class DesignersService {
@@ -37,7 +38,24 @@ export class DesignersService {
     private readonly usersService: UsersService,
   ) {}
 
+  private assertApparelSpecializations(specs: string[] | undefined) {
+    const list = specs ?? [];
+    if (!list.length) {
+      throw new BadRequestException(
+        "Select at least one apparel specialization (Men's / Women's garment type).",
+      );
+    }
+    for (const s of list) {
+      if (!isValidApparelDesignerToken(String(s))) {
+        throw new BadRequestException(
+          `Invalid specialization "${s}". Use the official apparel categories only.`,
+        );
+      }
+    }
+  }
+
   async apply(dto: ApplyDesignerDto) {
+    this.assertApparelSpecializations(dto.specializations);
     const email = dto.email.trim().toLowerCase();
 
     // If the applicant sent a password and there is no user account for this
@@ -270,8 +288,10 @@ export class DesignersService {
     if (dto.displayName !== undefined) d.displayName = dto.displayName.trim();
     if (dto.city !== undefined) d.city = dto.city?.trim() ?? null;
     if (dto.bio !== undefined) d.bio = dto.bio?.trim() ?? null;
-    if (dto.specializations !== undefined)
+    if (dto.specializations !== undefined) {
+      this.assertApparelSpecializations(dto.specializations);
       d.specializations = dto.specializations;
+    }
     if (dto.portfolioUrls !== undefined) d.portfolioUrls = dto.portfolioUrls;
     if (dto.baseRateInr !== undefined) d.baseRateInr = dto.baseRateInr;
     if (dto.rateType !== undefined) d.rateType = dto.rateType;
@@ -311,12 +331,20 @@ export class DesignersService {
     const saved = await this.jobRepo.save(job);
 
     if (designer.userId) {
+      const customer = await this.usersService.findById(customerId);
+      const customerName =
+        this.userDisplayName(customer) || 'a customer';
       await this.notifications.create(
         designer.userId,
         'designer_job',
         'New design request',
-        `A customer requested a design: ${saved.title}`,
-        { jobId: saved.id },
+        `You got a new request from ${customerName} — “${saved.title}”.`,
+        {
+          jobId: saved.id,
+          customerName,
+          customerId: customerId,
+          productId: saved.productId,
+        },
       );
     }
     return saved;
@@ -337,9 +365,13 @@ export class DesignersService {
     await this.notifications.create(
       job.customerUserId,
       'designer_job',
-      'Designer accepted your request',
-      `Your design job was accepted.`,
-      { jobId },
+      `${designer.displayName} accepted your request`,
+      `${designer.displayName} accepted your design request — you can now start chatting.`,
+      {
+        jobId,
+        designerId: designer.id,
+        designerName: designer.displayName,
+      },
     );
     return job;
   }
@@ -355,9 +387,13 @@ export class DesignersService {
     await this.notifications.create(
       job.customerUserId,
       'designer_job',
-      'Designer declined',
-      `Your design request was declined.`,
-      { jobId },
+      `${designer.displayName} declined your request`,
+      `${designer.displayName} was unable to take on your design request. You can request another designer anytime.`,
+      {
+        jobId,
+        designerId: designer.id,
+        designerName: designer.displayName,
+      },
     );
     return job;
   }
@@ -379,9 +415,13 @@ export class DesignersService {
     await this.notifications.create(
       job.customerUserId,
       'designer_job',
-      'New design proof',
-      'Your designer uploaded a proof.',
-      { jobId },
+      `${designer.displayName} shared a new proof`,
+      `${designer.displayName} uploaded a new design proof for your review.`,
+      {
+        jobId,
+        designerId: designer.id,
+        designerName: designer.displayName,
+      },
     );
     return proof;
   }
@@ -395,14 +435,140 @@ export class DesignersService {
     return job;
   }
 
-  listMessages(jobId: string, userId: string) {
-    return this.assertJobParticipant(jobId, userId).then(() =>
-      this.msgRepo.find({
-        where: { jobId },
-        order: { createdAt: 'ASC' },
-        relations: ['sender'],
-      }),
-    );
+  async listMessages(jobId: string, userId: string) {
+    await this.assertJobParticipant(jobId, userId);
+    const messages = await this.msgRepo.find({
+      where: { jobId },
+      order: { createdAt: 'ASC' },
+      relations: ['sender'],
+    });
+    const replyIds = [
+      ...new Set(
+        messages
+          .map((m) => m.replyToMessageId)
+          .filter((v): v is string => !!v),
+      ),
+    ];
+    const replyMap = new Map<
+      string,
+      {
+        id: string;
+        body: string;
+        senderId: string;
+        hasAttachments: boolean;
+        deletedAt: Date | null;
+      }
+    >();
+    if (replyIds.length) {
+      const replies = await this.msgRepo.find({
+        where: { id: In(replyIds) },
+        select: ['id', 'body', 'senderId', 'attachments', 'deletedAt'],
+      });
+      for (const r of replies) {
+        replyMap.set(r.id, {
+          id: r.id,
+          body: r.body,
+          senderId: r.senderId,
+          hasAttachments: (r.attachments?.length ?? 0) > 0,
+          deletedAt: r.deletedAt ?? null,
+        });
+      }
+    }
+    return messages.map((m) => {
+      const isDeleted = !!m.deletedAt;
+      const parent = m.replyToMessageId
+        ? replyMap.get(m.replyToMessageId)
+        : null;
+      return {
+        ...m,
+        body: isDeleted ? '' : m.body,
+        attachments: isDeleted ? [] : m.attachments,
+        replyTo: parent
+          ? {
+              id: parent.id,
+              senderId: parent.senderId,
+              body: parent.deletedAt ? '' : parent.body,
+              hasAttachments: parent.deletedAt ? false : parent.hasAttachments,
+              deletedAt: parent.deletedAt ? parent.deletedAt : null,
+            }
+          : null,
+      };
+    });
+  }
+
+  async deleteMessage(jobId: string, userId: string, messageId: string) {
+    const job = await this.assertJobParticipant(jobId, userId);
+    const msg = await this.msgRepo.findOne({ where: { id: messageId, jobId } });
+    if (!msg) throw new NotFoundException('Message not found');
+    if (msg.senderId !== userId) {
+      throw new ForbiddenException('You can only delete your own messages.');
+    }
+    if (msg.deletedAt) return { id: msg.id, deletedAt: msg.deletedAt };
+    msg.deletedAt = new Date();
+    msg.body = '';
+    msg.attachments = [];
+    await this.msgRepo.save(msg);
+
+    const otherUserId = await this.getOtherParticipantUserId(job, userId);
+    if (otherUserId) {
+      this.notifications.emitToUser(otherUserId, {
+        event: 'chat_message_deleted',
+        jobId,
+        messageId: msg.id,
+        deletedAt: msg.deletedAt.toISOString(),
+      });
+    }
+    // Also notify the sender's other open sessions.
+    this.notifications.emitToUser(userId, {
+      event: 'chat_message_deleted',
+      jobId,
+      messageId: msg.id,
+      deletedAt: msg.deletedAt.toISOString(),
+    });
+    return { id: msg.id, deletedAt: msg.deletedAt };
+  }
+
+  /**
+   * "Delete chat" — WhatsApp-style. Hides the conversation from the requesting
+   * user's inbox without affecting the other party. A new incoming message will
+   * automatically clear this flag (see postMessage).
+   */
+  async hideConversation(jobId: string, userId: string) {
+    const job = await this.assertJobParticipant(jobId, userId);
+    const now = new Date();
+    if (userId === job.customerUserId) {
+      job.hiddenByCustomerAt = now;
+    } else {
+      job.hiddenByDesignerAt = now;
+    }
+    await this.jobRepo.save(job);
+    return { id: job.id, hiddenAt: now };
+  }
+
+  /**
+   * "Clear messages" — permanently removes every message in the conversation
+   * for both participants. The job itself (and its metadata) is kept.
+   */
+  async clearConversation(jobId: string, userId: string) {
+    const job = await this.assertJobParticipant(jobId, userId);
+    const res = await this.msgRepo
+      .createQueryBuilder()
+      .delete()
+      .where('jobId = :jobId', { jobId })
+      .execute();
+
+    const otherUserId = await this.getOtherParticipantUserId(job, userId);
+    if (otherUserId) {
+      this.notifications.emitToUser(otherUserId, {
+        event: 'chat_cleared',
+        jobId,
+      });
+    }
+    this.notifications.emitToUser(userId, {
+      event: 'chat_cleared',
+      jobId,
+    });
+    return { deleted: res.affected ?? 0 };
   }
 
   async postMessage(jobId: string, userId: string, dto: DesignerMessageDto) {
@@ -424,16 +590,53 @@ export class DesignersService {
       );
     }
 
+    let replyToMessageId: string | null = null;
+    let replyPreview: {
+      id: string;
+      body: string;
+      senderId: string;
+      hasAttachments: boolean;
+    } | null = null;
+    if (dto.replyToMessageId) {
+      const parent = await this.msgRepo.findOne({
+        where: { id: dto.replyToMessageId },
+      });
+      if (parent && parent.jobId === jobId) {
+        replyToMessageId = parent.id;
+        replyPreview = {
+          id: parent.id,
+          body: parent.body,
+          senderId: parent.senderId,
+          hasAttachments: (parent.attachments?.length ?? 0) > 0,
+        };
+      }
+    }
+
     const msg = this.msgRepo.create({
       jobId,
       senderId: userId,
       body,
       attachments,
+      replyToMessageId,
+      readAt: null,
     });
     const saved = await this.msgRepo.save(msg);
 
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (job) {
+      // A new message always pops the conversation back into both inboxes.
+      let jobDirty = false;
+      if (job.hiddenByCustomerAt) {
+        job.hiddenByCustomerAt = null;
+        jobDirty = true;
+      }
+      if (job.hiddenByDesignerAt) {
+        job.hiddenByDesignerAt = null;
+        jobDirty = true;
+      }
+      if (jobDirty) {
+        await this.jobRepo.save(job);
+      }
       const designer = await this.designerRepo.findOne({
         where: { id: job.designerId },
       });
@@ -442,25 +645,116 @@ export class DesignersService {
         : attachments.length
           ? `Sent ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`
           : 'New message';
+
+      const otherUserId =
+        userId === job.customerUserId
+          ? designer?.userId ?? null
+          : designer?.userId === userId
+            ? job.customerUserId
+            : null;
+
+      if (otherUserId) {
+        this.notifications.emitToUser(otherUserId, {
+          event: 'chat_message',
+          jobId,
+          messageId: saved.id,
+          senderId: userId,
+        });
+      }
+
       if (userId === job.customerUserId && designer?.userId) {
+        const sender = await this.usersService.findById(userId);
+        const senderName = this.userDisplayName(sender) || 'Customer';
         await this.notifications.create(
           designer.userId,
           'designer_message',
-          'New message on design job',
+          `New message from ${senderName}`,
           preview,
-          { jobId, messageId: saved.id },
+          {
+            jobId,
+            messageId: saved.id,
+            senderId: userId,
+            senderName,
+          },
         );
       } else if (designer?.userId === userId) {
         await this.notifications.create(
           job.customerUserId,
           'designer_message',
-          'New message on design job',
+          `New message from ${designer.displayName}`,
           preview,
-          { jobId, messageId: saved.id },
+          {
+            jobId,
+            messageId: saved.id,
+            senderId: userId,
+            senderName: designer.displayName,
+          },
         );
       }
     }
-    return saved;
+    return { ...saved, replyTo: replyPreview };
+  }
+
+  /**
+   * Mark all messages in this job from the OTHER participant as read.
+   * Emits a realtime `chat_read` event to the sender so the UI can flip
+   * their message status to blue double-tick.
+   */
+  async markMessagesRead(jobId: string, userId: string) {
+    const job = await this.assertJobParticipant(jobId, userId);
+    const now = new Date();
+    const res = await this.msgRepo
+      .createQueryBuilder()
+      .update()
+      .set({ readAt: now })
+      .where('jobId = :jobId', { jobId })
+      .andWhere('senderId <> :userId', { userId })
+      .andWhere('readAt IS NULL')
+      .execute();
+
+    if ((res.affected ?? 0) > 0) {
+      const otherUserId = await this.getOtherParticipantUserId(job, userId);
+      if (otherUserId) {
+        this.notifications.emitToUser(otherUserId, {
+          event: 'chat_read',
+          jobId,
+          readerId: userId,
+          readAt: now.toISOString(),
+        });
+      }
+    }
+    return { updated: res.affected ?? 0 };
+  }
+
+  /**
+   * Ephemeral typing indicator — emits a realtime `chat_typing` event to the
+   * other participant. Not persisted.
+   */
+  async emitTyping(jobId: string, userId: string) {
+    const job = await this.assertJobParticipant(jobId, userId);
+    const otherUserId = await this.getOtherParticipantUserId(job, userId);
+    if (otherUserId) {
+      this.notifications.emitToUser(otherUserId, {
+        event: 'chat_typing',
+        jobId,
+        senderId: userId,
+        at: Date.now(),
+      });
+    }
+    return { ok: true };
+  }
+
+  private async getOtherParticipantUserId(
+    job: DesignerJob,
+    userId: string,
+  ): Promise<string | null> {
+    if (userId === job.customerUserId) {
+      const designer = await this.designerRepo.findOne({
+        where: { id: job.designerId },
+      });
+      return designer?.userId ?? null;
+    }
+    return job.customerUserId;
   }
 
   /**
@@ -488,13 +782,23 @@ export class DesignersService {
       qb.andWhere('j.status = :status', { status });
     }
 
+    // Apply per-user "delete chat" hide flags so the conversation disappears
+    // from this user's inbox until a new message arrives.
+    qb.andWhere(
+      '((j.customerUserId = :u AND j.hiddenByCustomerAt IS NULL) OR ' +
+        (designer
+          ? '(j.designerId = :d AND j.hiddenByDesignerAt IS NULL))'
+          : 'FALSE)'),
+    );
+
     const jobs = await qb.getMany();
     if (!jobs.length) return [];
 
     const designerIds = [...new Set(jobs.map((j) => j.designerId))];
     const customerIds = [...new Set(jobs.map((j) => j.customerUserId))];
+    const jobIds = jobs.map((j) => j.id);
 
-    const [designers, customers] = await Promise.all([
+    const [designers, customers, unreadRows, lastMsgRows] = await Promise.all([
       designerIds.length
         ? this.designerRepo
             .createQueryBuilder('d')
@@ -504,14 +808,55 @@ export class DesignersService {
       customerIds.length
         ? Promise.all(customerIds.map((id) => this.usersService.findById(id)))
         : Promise.resolve([]),
+      this.msgRepo
+        .createQueryBuilder('m')
+        .select('m.jobId', 'jobId')
+        .addSelect('COUNT(1)', 'unread')
+        .where('m.jobId IN (:...ids)', { ids: jobIds })
+        .andWhere('m.senderId <> :userId', { userId })
+        .andWhere('m.readAt IS NULL')
+        .groupBy('m.jobId')
+        .getRawMany<{ jobId: string; unread: string }>(),
+      this.msgRepo
+        .createQueryBuilder('m')
+        .where('m.jobId IN (:...ids)', { ids: jobIds })
+        .orderBy('m.createdAt', 'DESC')
+        .getMany(),
     ]);
 
     const designerMap = new Map(designers.map((d) => [d.id, d]));
     const customerMap = new Map(
-      customers
-        .filter((c): c is User => !!c)
-        .map((c) => [c.id, c]),
+      customers.filter((c): c is User => !!c).map((c) => [c.id, c]),
     );
+    const unreadMap = new Map(
+      unreadRows.map((r) => [r.jobId, Number(r.unread) || 0]),
+    );
+    const lastMessageMap = new Map<
+      string,
+      {
+        id: string;
+        body: string;
+        senderId: string;
+        createdAt: Date;
+        hasAttachments: boolean;
+        attachmentCount: number;
+        deletedAt: Date | null;
+      }
+    >();
+    for (const m of lastMsgRows) {
+      if (!lastMessageMap.has(m.jobId)) {
+        const deleted = !!m.deletedAt;
+        lastMessageMap.set(m.jobId, {
+          id: m.id,
+          body: deleted ? '' : m.body,
+          senderId: m.senderId,
+          createdAt: m.createdAt,
+          hasAttachments: deleted ? false : (m.attachments?.length ?? 0) > 0,
+          attachmentCount: deleted ? 0 : m.attachments?.length ?? 0,
+          deletedAt: m.deletedAt ?? null,
+        });
+      }
+    }
 
     return jobs.map((j) => ({
       ...j,
@@ -521,6 +866,8 @@ export class DesignersService {
         : null,
       viewerRole:
         designer && j.designerId === designer.id ? 'designer' : 'customer',
+      unreadCount: unreadMap.get(j.id) ?? 0,
+      lastMessage: lastMessageMap.get(j.id) ?? null,
     }));
   }
 

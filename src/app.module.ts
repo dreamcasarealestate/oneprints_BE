@@ -39,12 +39,29 @@ import { ProductTemplatesModule } from './product-templates/product-templates.mo
           );
         }
 
+        const isCloudPostgres =
+          /\.neon\.tech|\.amazonaws\.com|supabase\.co|azure\.com/i.test(
+            postgresUrl,
+          );
+
         return {
           type: 'postgres' as const,
           url: postgresUrl,
           entities: [join(__dirname, '**', '*.entity{.ts,.js}')],
           synchronize: true,
           logging: config.get<string>('TYPEORM_LOGGING') === 'true',
+          // Initial connect (e.g. after Neon wake or brief outage)
+          retryAttempts: 5,
+          retryDelay: 2000,
+          // Passed to node-pg Pool — reduces stale sockets after idle / suspend
+          extra: {
+            max: isCloudPostgres ? 8 : 10,
+            idleTimeoutMillis: isCloudPostgres ? 15_000 : 30_000,
+            connectionTimeoutMillis: 20_000,
+            keepAlive: true,
+            keepAliveInitialDelayMillis: 10_000,
+            ...(isCloudPostgres ? { maxUses: 500 } : {}),
+          },
         };
       },
     }),

@@ -46,6 +46,17 @@ async function bootstrap() {
       .filter(Boolean)
       .map((origin) => origin.replace(/\/$/, ''));
 
+    // Helpful boot log — lets you verify on Render which origins are allowed.
+    if (allowedOrigins.length === 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[CORS] No ALLOWED_ORIGINS / CORS_ORIGIN set in production. All browser requests will be blocked.',
+      );
+    } else {
+      // eslint-disable-next-line no-console
+      console.log('[CORS] Allowed origins:', allowedOrigins.join(', '));
+    }
+
     app.enableCors({
       origin: (origin, cb) => {
         if (!origin) {
@@ -57,7 +68,11 @@ async function bootstrap() {
           return cb(null, true);
         }
 
-        return cb(new Error(`CORS blocked for origin: ${origin}`), false);
+        // eslint-disable-next-line no-console
+        console.warn(`[CORS] Blocked origin: ${origin}`);
+        // Return `false` (not an Error) so Nest replies without CORS headers
+        // instead of turning this into a 500 from the global exception filter.
+        return cb(null, false);
       },
       credentials: true,
       methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
