@@ -11,6 +11,11 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { User } from '../user/user.entity';
+import {
+  APPAREL_CATEGORY_SLUG,
+  isApparelGender,
+  isSubtypeForGender,
+} from '../designer/apparel-designer-taxonomy';
 
 export type ProductListQuery = {
   categorySlug?: string;
@@ -96,6 +101,29 @@ export class CatalogueService {
     @InjectRepository(Product)
     private readonly prodRepo: Repository<Product>,
   ) {}
+
+  /**
+   * Designer marketplace is apparel-only. Non-apparel products never expose it;
+   * apparel requires gender + subtype before `supportsDesignerMarketplace` stays on.
+   */
+  private async normalizeApparelDesignerProduct(p: Product) {
+    const cat = await this.catRepo.findOne({ where: { id: p.categoryId } });
+    const isApparel = cat?.slug === APPAREL_CATEGORY_SLUG;
+    if (!isApparel) {
+      p.supportsDesignerMarketplace = false;
+      p.apparelDesignerGender = null;
+      p.apparelDesignerSubtype = null;
+      return;
+    }
+    const g = p.apparelDesignerGender;
+    const st = p.apparelDesignerSubtype?.trim().toLowerCase() ?? '';
+    if (!isApparelGender(g) || !st || !isSubtypeForGender(g, st)) {
+      p.supportsDesignerMarketplace = false;
+      return;
+    }
+    p.apparelDesignerGender = g;
+    p.apparelDesignerSubtype = st;
+  }
 
   listCategories() {
     return this.catRepo.find({ order: { sortOrder: 'ASC', name: 'ASC' } });
@@ -245,7 +273,9 @@ export class CatalogueService {
       productionTimeDays: dto.productionTimeDays ?? 5,
       supportsEditor: dto.supportsEditor ?? true,
       supportsCustomMeasurement: dto.supportsCustomMeasurement ?? false,
-      supportsDesignerMarketplace: dto.supportsDesignerMarketplace ?? true,
+      supportsDesignerMarketplace: dto.supportsDesignerMarketplace ?? false,
+      apparelDesignerGender: dto.apparelDesignerGender ?? null,
+      apparelDesignerSubtype: dto.apparelDesignerSubtype?.trim().toLowerCase() ?? null,
       gstRate: dto.gstRate ?? 18,
       isActive: dto.isActive ?? true,
       tags: dto.tags ?? [],
@@ -263,6 +293,7 @@ export class CatalogueService {
       updatedByUserId: actor?.id ?? null,
       updatedByDisplayName: dn,
     });
+    await this.normalizeApparelDesignerProduct(p);
     try {
       return await this.prodRepo.save(p);
     } catch (err: any) {
@@ -324,6 +355,10 @@ export class CatalogueService {
       p.supportsCustomMeasurement = dto.supportsCustomMeasurement;
     if (dto.supportsDesignerMarketplace !== undefined)
       p.supportsDesignerMarketplace = dto.supportsDesignerMarketplace;
+    if (dto.apparelDesignerGender !== undefined)
+      p.apparelDesignerGender = dto.apparelDesignerGender;
+    if (dto.apparelDesignerSubtype !== undefined)
+      p.apparelDesignerSubtype = dto.apparelDesignerSubtype?.trim().toLowerCase() ?? null;
     if (dto.gstRate !== undefined) p.gstRate = dto.gstRate;
     if (dto.isActive !== undefined) p.isActive = dto.isActive;
     if (dto.tags !== undefined) p.tags = dto.tags;
@@ -343,6 +378,7 @@ export class CatalogueService {
       p.updatedByUserId = actor.id;
       p.updatedByDisplayName = displayNameForActor(actor);
     }
+    await this.normalizeApparelDesignerProduct(p);
     return this.prodRepo.save(p);
   }
 
@@ -432,7 +468,9 @@ export class CatalogueService {
             productionTimeDays: 5,
             supportsEditor: true,
             supportsCustomMeasurement: false,
-            supportsDesignerMarketplace: true,
+            supportsDesignerMarketplace: false,
+            apparelDesignerGender: null,
+            apparelDesignerSubtype: null,
             gstRate: 18,
             isActive: true,
             tags: [],

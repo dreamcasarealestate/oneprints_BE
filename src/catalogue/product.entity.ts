@@ -93,6 +93,14 @@ export class Product {
   @Column({ default: true })
   supportsDesignerMarketplace: boolean;
 
+  /** For `apparel` category: men's / women's line for designer matching. */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  apparelDesignerGender: 'men' | 'women' | null;
+
+  /** For `apparel`: garment subtype slug (see designer/apparel-designer-taxonomy). */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  apparelDesignerSubtype: string | null;
+
   @Column('double precision', { default: 18 })
   gstRate: number;
 

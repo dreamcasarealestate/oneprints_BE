@@ -64,6 +64,14 @@ export class NotificationsService {
     });
   }
 
+  /**
+   * Push an ephemeral event (no DB persistence) to a user's SSE stream.
+   * Used for realtime chat signals like typing indicators and read receipts.
+   */
+  emitToUser(userId: string, payload: unknown) {
+    this.emitStream(userId, payload);
+  }
+
   async create(
     userId: string,
     type: string,

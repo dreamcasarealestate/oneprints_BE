@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -161,6 +162,19 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   supportsDesignerMarketplace?: boolean;
+
+  @ApiPropertyOptional({ enum: ['men', 'women'] })
+  @IsOptional()
+  @IsIn(['men', 'women'])
+  apparelDesignerGender?: 'men' | 'women' | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Apparel subtype slug (shirts, t-shirts, …) — must match gender when category is apparel.',
+  })
+  @IsOptional()
+  @IsString()
+  apparelDesignerSubtype?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
