@@ -61,6 +61,23 @@ export class OrderItem {
   @Column('jsonb', { nullable: true })
   customizationData: Record<string, unknown> | null;
 
+  /**
+   * Frozen snapshot of the product variant the shopper saw at order time
+   * (per-colour MRP / selling price / discount / stock). Kept so fulfilment
+   * and invoices can reflect the exact pricing the customer agreed to, even
+   * if the admin later changes the product's variants.
+   */
+  @Column('jsonb', { nullable: true })
+  variantSnapshot: {
+    key?: string;
+    colorName?: string;
+    colorHex?: string | null;
+    mrp?: number | null;
+    sellingPrice?: number | null;
+    discountPercent?: number | null;
+    stockQty?: number | null;
+  } | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

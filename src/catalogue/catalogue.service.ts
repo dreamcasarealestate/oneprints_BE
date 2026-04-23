@@ -4,10 +4,10 @@ import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Design } from '../design/design.entity';
 import { DesignerJob } from '../designer/designer-job.entity';
 import { ProductCategory } from './product-category.entity';
-import { Product } from './product.entity';
+import { Product, ProductVariant } from './product.entity';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CANONICAL_CATEGORIES } from './canonical-categories';
-import { CreateProductDto } from './dto/create-product.dto';
+import { CreateProductDto, ProductVariantDto } from './dto/create-product.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { User } from '../user/user.entity';
@@ -65,6 +65,84 @@ function pruneImagesByColour(
       }
     }
     if (urls?.length) out[colour] = [...urls];
+  }
+  return out;
+}
+
+function slugifyColorName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+/**
+ * Normalize + validate an incoming variant list. De-duplicates by colour name
+ * (case-insensitive), fills in missing keys and derives `discountPercent` when
+ * not supplied. Variants without a valid colour name or non-positive prices
+ * are dropped silently (frontend validation is the primary guard).
+ */
+function normalizeVariants(
+  raw: ProductVariantDto[] | undefined | null,
+): ProductVariant[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const out: ProductVariant[] = [];
+  const seenNames = new Set<string>();
+  const seenKeys = new Set<string>();
+  for (const v of raw) {
+    const colorName = (v?.colorName ?? '').trim();
+    if (!colorName) continue;
+    const nameKey = colorName.toLowerCase();
+    if (seenNames.has(nameKey)) continue;
+    seenNames.add(nameKey);
+
+    const mrp = Number(v.mrp);
+    const sellingPrice = Number(v.sellingPrice);
+    if (!Number.isFinite(mrp) || !Number.isFinite(sellingPrice)) continue;
+    if (mrp < 0 || sellingPrice < 0) continue;
+
+    let key = (v.key ?? '').trim() || slugifyColorName(colorName) || `variant-${out.length + 1}`;
+    // Ensure uniqueness.
+    let unique = key;
+    let suffix = 2;
+    while (seenKeys.has(unique)) {
+      unique = `${key}-${suffix++}`;
+    }
+    key = unique;
+    seenKeys.add(key);
+
+    const derivedDiscount =
+      mrp > 0 && sellingPrice <= mrp
+        ? Math.round(((mrp - sellingPrice) / mrp) * 100)
+        : 0;
+    const discountPercent =
+      v.discountPercent !== undefined && v.discountPercent !== null
+        ? Math.max(0, Math.min(100, Number(v.discountPercent)))
+        : derivedDiscount;
+
+    const stockQty =
+      v.stockQty === undefined || v.stockQty === null || !Number.isFinite(Number(v.stockQty))
+        ? null
+        : Math.max(0, Math.floor(Number(v.stockQty)));
+
+    const images = Array.isArray(v.images)
+      ? v.images
+          .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+          .map((x) => x.trim())
+      : [];
+
+    out.push({
+      key,
+      colorName,
+      colorHex: v.colorHex?.trim() || null,
+      mrp,
+      sellingPrice,
+      discountPercent,
+      stockQty,
+      images,
+    });
   }
   return out;
 }
@@ -268,6 +346,7 @@ export class CatalogueService {
       blankImagesBySideColour: dto.blankImagesBySideColour ?? null,
       imagesBySideColour: dto.imagesBySideColour ?? null,
       availableColours: dto.availableColours ?? [],
+      variants: normalizeVariants(dto.variants),
       availableSizes: dto.availableSizes ?? [],
       minOrderQty: dto.minOrderQty ?? 1,
       productionTimeDays: dto.productionTimeDays ?? 5,
@@ -346,6 +425,9 @@ export class CatalogueService {
       p.blankImagesBySideColour = dto.blankImagesBySideColour ?? null;
     if (dto.imagesBySideColour !== undefined)
       p.imagesBySideColour = dto.imagesBySideColour ?? null;
+    if (dto.variants !== undefined) {
+      p.variants = normalizeVariants(dto.variants);
+    }
     if (dto.availableSizes !== undefined) p.availableSizes = dto.availableSizes;
     if (dto.minOrderQty !== undefined) p.minOrderQty = dto.minOrderQty;
     if (dto.productionTimeDays !== undefined)
@@ -463,6 +545,7 @@ export class CatalogueService {
             customSections: [],
             printAreas: [],
             availableColours: [],
+            variants: [],
             availableSizes: [],
             minOrderQty: 1,
             productionTimeDays: 5,

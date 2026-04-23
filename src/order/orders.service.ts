@@ -138,6 +138,7 @@ export class OrdersService {
         designData: row.designData ?? null,
         measurements: row.measurements ?? null,
         customizationData: row.customizationData ?? null,
+        variantSnapshot: row.variantSnapshot ?? null,
       });
       await this.itemsRepo.save(line);
     }
