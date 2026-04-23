@@ -9,6 +9,25 @@ import {
 } from 'typeorm';
 import { ProductCategory } from './product-category.entity';
 
+export type ProductVariant = {
+  /** Stable unique key for the variant within the product (slug of colorName). */
+  key: string;
+  /** Display colour name, e.g. "Navy Blue". Must be unique per product. */
+  colorName: string;
+  /** Optional hex swatch colour; falls back to parsing colorName if recognised. */
+  colorHex?: string | null;
+  /** Maximum Retail Price (strike-through price). */
+  mrp: number;
+  /** Actual selling price (what the customer pays / per piece). */
+  sellingPrice: number;
+  /** Discount % — normally derived (mrp→sellingPrice) but stored for display. */
+  discountPercent: number;
+  /** Units on hand for this variant; null = treat as unlimited / not tracked. */
+  stockQty: number | null;
+  /** Variant-specific gallery shown on the storefront PDP when selected. */
+  images: string[];
+};
+
 @Entity('products')
 export class Product {
   @PrimaryGeneratedColumn('uuid')
@@ -75,6 +94,17 @@ export class Product {
   @Column('jsonb', { default: [] })
   availableColours: string[];
 
+  /**
+   * Per-colour product variants with their own pricing, stock, and image gallery.
+   *
+   * When the array is non-empty, the storefront uses the matching variant's
+   * `mrp`, `sellingPrice`, `discountPercent`, `stockQty`, and `images` instead
+   * of the product-level `basePrice` / `imagesByColour` / `stockQuantity`.
+   * When empty, the product falls back to the flat fields for backwards compat.
+   */
+  @Column('jsonb', { default: [] })
+  variants: ProductVariant[];
+
   @Column('jsonb', { default: [] })
   availableSizes: string[];
 
@@ -93,9 +123,9 @@ export class Product {
   @Column({ default: true })
   supportsDesignerMarketplace: boolean;
 
-  /** For `apparel` category: men's / women's line for designer matching. */
+  /** For `apparel` category: men's / women's / kids' line for designer matching. */
   @Column({ type: 'varchar', length: 8, nullable: true })
-  apparelDesignerGender: 'men' | 'women' | null;
+  apparelDesignerGender: 'men' | 'women' | 'kids' | null;
 
   /** For `apparel`: garment subtype slug (see designer/apparel-designer-taxonomy). */
   @Column({ type: 'varchar', length: 64, nullable: true })

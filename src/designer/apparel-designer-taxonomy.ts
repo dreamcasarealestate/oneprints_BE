@@ -1,6 +1,6 @@
 /** Apparel-only designer marketplace — tokens stored in `designers.specializations`. */
 
-export type ApparelGender = 'men' | 'women';
+export type ApparelGender = 'men' | 'women' | 'kids';
 
 export const APPAREL_CATEGORY_SLUG = 'apparel';
 
@@ -28,7 +28,23 @@ export const APPAREL_DESIGNER_SUBTYPES: Record<
     { slug: 'ethnic-wear', label: 'Ethnic wear' },
     { slug: 'co-ords', label: 'Co-ords & sets' },
   ],
+  kids: [
+    { slug: 't-shirts', label: 'T-shirts' },
+    { slug: 'hoodies', label: 'Hoodies & sweatshirts' },
+    { slug: 'shorts', label: 'Shorts' },
+    { slug: 'pants', label: 'Pants' },
+    { slug: 'dresses', label: 'Dresses' },
+    { slug: 'ethnic-wear', label: 'Ethnic wear' },
+    { slug: 'nightwear', label: 'Nightwear' },
+    { slug: 'uniforms', label: 'School uniforms' },
+  ],
 };
+
+function genderLabel(gender: ApparelGender): string {
+  if (gender === 'men') return "Men's";
+  if (gender === 'women') return "Women's";
+  return "Kids'";
+}
 
 export function apparelDesignerToken(
   gender: ApparelGender,
@@ -37,7 +53,7 @@ export function apparelDesignerToken(
   return `apparel:${gender}:${subtypeSlug.trim().toLowerCase()}`;
 }
 
-const TOKEN_RE = /^apparel:(men|women):([a-z0-9-]+)$/i;
+const TOKEN_RE = /^apparel:(men|women|kids):([a-z0-9-]+)$/i;
 
 export function parseApparelDesignerToken(
   token: string,
@@ -57,7 +73,7 @@ export function isValidApparelDesignerToken(token: string): boolean {
 }
 
 export function isApparelGender(value: unknown): value is ApparelGender {
-  return value === 'men' || value === 'women';
+  return value === 'men' || value === 'women' || value === 'kids';
 }
 
 export function isSubtypeForGender(
@@ -73,6 +89,5 @@ export function labelForApparelDesignerToken(token: string): string | null {
   if (!p) return null;
   const row = APPAREL_DESIGNER_SUBTYPES[p.gender].find((x) => x.slug === p.subtype);
   if (!row) return null;
-  const g = p.gender === 'men' ? "Men's" : "Women's";
-  return `${g} · ${row.label}`;
+  return `${genderLabel(p.gender)} · ${row.label}`;
 }

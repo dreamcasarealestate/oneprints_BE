@@ -123,6 +123,14 @@ export class OrderLineItemInputDto {
   @IsOptional()
   @IsObject()
   customizationData?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    description:
+      'Snapshot of the product variant (per-colour) the shopper saw at order time: key, colorName, colorHex, mrp, sellingPrice, discountPercent, stockQty.',
+  })
+  @IsOptional()
+  @IsObject()
+  variantSnapshot?: Record<string, unknown>;
 }
 
 export class CreateOrderDto {

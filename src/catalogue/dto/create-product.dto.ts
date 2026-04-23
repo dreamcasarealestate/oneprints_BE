@@ -24,6 +24,51 @@ class BulkTierDto {
   pricePerUnit: number;
 }
 
+export class ProductVariantDto {
+  @ApiPropertyOptional({ description: 'Stable key — defaults to slug of colorName server-side when omitted.' })
+  @IsOptional()
+  @IsString()
+  key?: string;
+
+  @ApiProperty({ description: 'Display colour name. Must be unique within the product.' })
+  @IsString()
+  @MinLength(1)
+  colorName: string;
+
+  @ApiPropertyOptional({ description: 'Optional hex swatch, e.g. "#1a2b3c".' })
+  @IsOptional()
+  @IsString()
+  colorHex?: string | null;
+
+  @ApiProperty({ description: 'MRP / strike-through price for this colour variant.' })
+  @IsNumber()
+  @Min(0)
+  mrp: number;
+
+  @ApiProperty({ description: 'Actual selling price for this colour variant.' })
+  @IsNumber()
+  @Min(0)
+  sellingPrice: number;
+
+  @ApiPropertyOptional({ description: 'Discount % — defaults to derived from mrp/sellingPrice.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountPercent?: number;
+
+  @ApiPropertyOptional({ description: 'Units on hand. null/omitted = treat as unlimited.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  stockQty?: number | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  images?: string[];
+}
+
 export class CreateProductDto {
   @ApiProperty()
   @IsString()
@@ -130,6 +175,17 @@ export class CreateProductDto {
   @IsString({ each: true })
   availableColours?: string[];
 
+  @ApiPropertyOptional({
+    type: [ProductVariantDto],
+    description:
+      'Per-colour variant rows with their own MRP, selling price, stock, and images. When non-empty, the storefront uses these instead of flat basePrice/imagesByColour/stockQuantity.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductVariantDto)
+  variants?: ProductVariantDto[];
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -163,10 +219,10 @@ export class CreateProductDto {
   @IsBoolean()
   supportsDesignerMarketplace?: boolean;
 
-  @ApiPropertyOptional({ enum: ['men', 'women'] })
+  @ApiPropertyOptional({ enum: ['men', 'women', 'kids'] })
   @IsOptional()
-  @IsIn(['men', 'women'])
-  apparelDesignerGender?: 'men' | 'women' | null;
+  @IsIn(['men', 'women', 'kids'])
+  apparelDesignerGender?: 'men' | 'women' | 'kids' | null;
 
   @ApiPropertyOptional({
     description:
