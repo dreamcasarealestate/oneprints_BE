@@ -12,6 +12,8 @@ import { ProductCategory } from './product-category.entity';
 export type ProductVariant = {
   /** Stable unique key for the variant within the product (slug of colorName). */
   key: string;
+  /** Per-variant SKU shown in admin listings; optional, falls back to the product SKU. */
+  sku?: string | null;
   /** Display colour name, e.g. "Navy Blue". Must be unique per product. */
   colorName: string;
   /** Optional hex swatch colour; falls back to parsing colorName if recognised. */
@@ -140,6 +142,13 @@ export class Product {
   /** Search / merchandising tags (not product variants). */
   @Column('jsonb', { default: [] })
   tags: string[];
+
+  /**
+   * Bullet-point key features rendered under the "About this item" block on
+   * the product detail page. Each entry is a short plain-text line.
+   */
+  @Column('jsonb', { default: [] })
+  highlights: string[];
 
   /** When true, `stockQuantity` is shown and used for availability messaging. */
   @Column({ default: false })

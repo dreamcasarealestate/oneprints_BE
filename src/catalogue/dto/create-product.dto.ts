@@ -30,6 +30,11 @@ export class ProductVariantDto {
   @IsString()
   key?: string;
 
+  @ApiPropertyOptional({ description: 'Per-variant SKU (optional; falls back to the product SKU).' })
+  @IsOptional()
+  @IsString()
+  sku?: string | null;
+
   @ApiProperty({ description: 'Display colour name. Must be unique within the product.' })
   @IsString()
   @MinLength(1)
@@ -248,6 +253,16 @@ export class CreateProductDto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Bullet-point key features (e.g. "Solid teak frame"). Rendered under "About this item" on the PDP.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  highlights?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()
