@@ -133,8 +133,14 @@ function normalizeVariants(
           .map((x) => x.trim())
       : [];
 
+    const sku =
+      typeof v.sku === 'string' && v.sku.trim().length > 0
+        ? v.sku.trim().slice(0, 80)
+        : null;
+
     out.push({
       key,
+      sku,
       colorName,
       colorHex: v.colorHex?.trim() || null,
       mrp,
@@ -143,6 +149,19 @@ function normalizeVariants(
       stockQty,
       images,
     });
+  }
+  return out;
+}
+
+function normalizeHighlights(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (!trimmed) continue;
+    out.push(trimmed.slice(0, 300));
+    if (out.length >= 20) break;
   }
   return out;
 }
@@ -358,6 +377,7 @@ export class CatalogueService {
       gstRate: dto.gstRate ?? 18,
       isActive: dto.isActive ?? true,
       tags: dto.tags ?? [],
+      highlights: normalizeHighlights(dto.highlights),
       trackInventory: dto.trackInventory ?? false,
       stockQuantity:
         dto.trackInventory &&
@@ -444,6 +464,9 @@ export class CatalogueService {
     if (dto.gstRate !== undefined) p.gstRate = dto.gstRate;
     if (dto.isActive !== undefined) p.isActive = dto.isActive;
     if (dto.tags !== undefined) p.tags = dto.tags;
+    if (dto.highlights !== undefined) {
+      p.highlights = normalizeHighlights(dto.highlights);
+    }
     if (dto.trackInventory !== undefined) {
       p.trackInventory = dto.trackInventory;
       if (!dto.trackInventory) {
@@ -557,6 +580,7 @@ export class CatalogueService {
             gstRate: 18,
             isActive: true,
             tags: [],
+            highlights: [],
             trackInventory: false,
             stockQuantity: null,
             restockNote: null,
