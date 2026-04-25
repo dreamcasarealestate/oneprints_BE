@@ -251,6 +251,11 @@ export class UsersService {
   /**
    * When a designer application is approved, link the storefront account that
    * registered with the same email and promote the role to designer.
+   *
+   * Uses a direct UPDATE query rather than entity save() so that the role flip
+   * persists reliably even when the entity was loaded without `select: false`
+   * columns (passwordHash) — those omitted columns can otherwise interfere
+   * with TypeORM's diff/save behaviour.
    */
   async promoteCustomerToDesignerByEmail(email: string): Promise<User | null> {
     await this.ensureRoleRows();
@@ -259,12 +264,21 @@ export class UsersService {
     if (!user) {
       return null;
     }
-    if (normalizeKnownUserKind(user.userKind) !== UserKind.USER) {
+    const currentKind = normalizeKnownUserKind(user.userKind);
+    if (currentKind === UserKind.DESIGNER) {
+      return user;
+    }
+    if (currentKind !== UserKind.USER) {
+      // admin / staff / ops — never auto-flip these to designer.
       return null;
     }
+    const roleId = await this.resolveRoleId(UserKind.DESIGNER);
+    await this.usersRepo.update(
+      { id: user.id },
+      { userKind: UserKind.DESIGNER, roleId },
+    );
     user.userKind = UserKind.DESIGNER;
-    user.roleId = await this.resolveRoleId(UserKind.DESIGNER);
-    await this.usersRepo.save(user);
+    user.roleId = roleId;
     return user;
   }
 
@@ -277,9 +291,13 @@ export class UsersService {
     if (normalizeKnownUserKind(user.userKind) !== UserKind.DESIGNER) {
       return user;
     }
+    const roleId = await this.resolveRoleId(UserKind.USER);
+    await this.usersRepo.update(
+      { id: user.id },
+      { userKind: UserKind.USER, roleId },
+    );
     user.userKind = UserKind.USER;
-    user.roleId = await this.resolveRoleId(UserKind.USER);
-    await this.usersRepo.save(user);
+    user.roleId = roleId;
     return user;
   }
 

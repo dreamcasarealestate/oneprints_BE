@@ -73,8 +73,9 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Get current authenticated user' })
   @ApiOkResponse({ description: 'Authenticated user profile' })
-  me(@CurrentUser() user: User) {
-    const { passwordHash: _, ...safe } = user;
+  async me(@CurrentUser() user: User) {
+    const fresh = await this.authService.getCurrentUser(user);
+    const { passwordHash: _, ...safe } = fresh as User;
     return safe;
   }
 }

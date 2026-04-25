@@ -315,6 +315,23 @@ export class DesignersService {
     });
     if (!designer) throw new NotFoundException('Designer not available');
 
+    // Prevent duplicate requests: if the customer already has an open thread
+    // with this designer (requested / accepted / in_progress), return it
+    // instead of creating a second one. This makes the "Request" button
+    // idempotent across double-clicks, slow networks and stale tabs.
+    const existing = await this.jobRepo
+      .createQueryBuilder('job')
+      .where('job.customerUserId = :customerId', { customerId })
+      .andWhere('job.designerId = :designerId', { designerId: dto.designerId })
+      .andWhere('job.status IN (:...openStatuses)', {
+        openStatuses: ['requested', 'accepted', 'in_progress'],
+      })
+      .orderBy('job.updatedAt', 'DESC')
+      .getOne();
+    if (existing) {
+      return existing;
+    }
+
     const job = this.jobRepo.create({
       customerUserId: customerId,
       designerId: dto.designerId,
