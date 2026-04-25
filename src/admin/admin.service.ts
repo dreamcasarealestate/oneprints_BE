@@ -100,9 +100,16 @@ export class AdminService {
     return this.designers.deleteDesigner(id);
   }
 
-  /** Submit a marketplace designer application from the admin portal (ops). */
-  adminSubmitDesignerApplication(dto: ApplyDesignerDto) {
-    return this.designers.apply(dto);
+  /**
+   * Submit a marketplace designer application from the admin portal (ops).
+   *
+   * Admin-created designer profiles are auto-approved on the same call so the
+   * linked user is immediately promoted to `userKind = designer` and can sign
+   * in as a designer without a second approval step.
+   */
+  async adminSubmitDesignerApplication(dto: ApplyDesignerDto, actor?: User) {
+    const created = await this.designers.apply(dto);
+    return this.designers.approveDesigner(created.id, actor);
   }
 
   bulkImportProducts(csv: string) {

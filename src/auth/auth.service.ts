@@ -6,12 +6,15 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
 import type { StringValue } from 'ms';
 import * as bcrypt from 'bcrypt';
 import { randomInt, randomUUID } from 'crypto';
+import { Repository } from 'typeorm';
 import { UsersService } from '../user/users.service';
 import { UserKind } from '../user/user-kind.enum';
-import { normalizeUserKind } from '../user/user-kind.util';
+import { normalizeKnownUserKind, normalizeUserKind } from '../user/user-kind.util';
+import { Designer } from '../designer/designer.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
@@ -35,7 +38,50 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    @InjectRepository(Designer)
+    private readonly designerRepo: Repository<Designer>,
   ) {}
+
+  /**
+   * Self-heals legacy accounts whose `userKind` was never flipped to `designer`
+   * after their designer profile was approved (e.g. older promotion code paths
+   * that didn't persist reliably). Runs at login so the issued token always
+   * reflects the correct role.
+   */
+  private async reconcileDesignerKind(user: {
+    id: string;
+    email: string;
+    userKind: UserKind;
+  }): Promise<UserKind> {
+    const current = normalizeKnownUserKind(user.userKind);
+    if (current !== UserKind.USER) {
+      return current;
+    }
+    const email = user.email.trim().toLowerCase();
+    const designer = await this.designerRepo
+      .createQueryBuilder('d')
+      .where('d.status = :st', { st: 'approved' })
+      .andWhere('(d.userId = :uid OR LOWER(d.email) = :email)', {
+        uid: user.id,
+        email,
+      })
+      .orderBy('d.approvedAt', 'DESC')
+      .getOne();
+    if (!designer) {
+      return current;
+    }
+    const promoted = await this.usersService.promoteCustomerToDesignerByEmail(
+      email,
+    );
+    if (!promoted) {
+      return current;
+    }
+    if (!designer.userId) {
+      designer.userId = promoted.id;
+      await this.designerRepo.save(designer);
+    }
+    return UserKind.DESIGNER;
+  }
 
   async register(dto: RegisterDto) {
     const requestedKind = normalizeUserKind(dto.userKind) ?? UserKind.USER;
@@ -72,6 +118,21 @@ export class AuthService {
     return this.issueTokens(safe);
   }
 
+  /**
+   * Returns the up-to-date user record for the authenticated principal,
+   * reconciling stale `userKind` against the designer profile so the storefront
+   * session always reflects the canonical role.
+   */
+  async getCurrentUser<
+    T extends { id: string; email: string; userKind: UserKind },
+  >(user: T): Promise<T> {
+    const reconciledKind = await this.reconcileDesignerKind(user);
+    if (reconciledKind !== user.userKind) {
+      user.userKind = reconciledKind;
+    }
+    return user;
+  }
+
   async login(dto: LoginDto) {
     const user = await this.usersService.findByEmailWithPassword(dto.email);
     if (!user) {
@@ -81,6 +142,8 @@ export class AuthService {
     if (!ok) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    const reconciledKind = await this.reconcileDesignerKind(user);
+    user.userKind = reconciledKind;
 
     // Hard-deleted accounts cannot sign in.
     if (user.deletedAt) {
@@ -120,6 +183,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
     this.revokedRefreshJti.add(payload.jti);
+    const reconciledKind = await this.reconcileDesignerKind(user);
+    user.userKind = reconciledKind;
     const { passwordHash: _, ...safe } = user;
     return this.issueTokens(safe);
   }

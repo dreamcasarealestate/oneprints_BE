@@ -134,8 +134,11 @@ export class AdminController {
       'Submit designer application on behalf (same payload as public apply)',
   })
   @ApiBody({ type: ApplyDesignerDto })
-  adminApplyDesigner(@Body() dto: ApplyDesignerDto) {
-    return this.admin.adminSubmitDesignerApplication(dto);
+  adminApplyDesigner(
+    @CurrentUser() user: User,
+    @Body() dto: ApplyDesignerDto,
+  ) {
+    return this.admin.adminSubmitDesignerApplication(dto, user);
   }
 
   @Post('products/bulk-import')
