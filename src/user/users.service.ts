@@ -302,6 +302,10 @@ export class UsersService {
         'roleId',
         'branchId',
         'passwordHash',
+        'isActive',
+        'deactivatedAt',
+        'deletionScheduledAt',
+        'deletedAt',
         'createdAt',
         'updatedAt',
       ],
@@ -557,6 +561,122 @@ export class UsersService {
     await this.ensureAdminStillExists(user.userKind, null);
     await this.usersRepo.remove(user);
     return { id, deleted: true };
+  }
+
+  /**
+   * Self-service account deactivation. The user must confirm with their
+   * current password. The row is preserved so they can reactivate later by
+   * logging back in (we flip the flag) or by contacting support.
+   */
+  async deactivateOwnAccount(
+    userId: string,
+    currentPassword: string,
+    reason?: string,
+  ) {
+    if (!currentPassword?.trim()) {
+      throw new BadRequestException(
+        'Current password is required to deactivate your account',
+      );
+    }
+    const user = await this.findOneOrFail(userId);
+    const withPassword = await this.findByEmailWithPassword(user.email);
+    if (!withPassword) {
+      throw new NotFoundException('User not found');
+    }
+    const ok = await bcrypt.compare(currentPassword, withPassword.passwordHash);
+    if (!ok) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    if (this.isElevatedAdmin(user.userKind)) {
+      throw new ForbiddenException(
+        'Admin accounts cannot self-deactivate. Contact a super admin.',
+      );
+    }
+
+    user.isActive = false;
+    user.deactivatedAt = new Date();
+    if (reason && reason.trim()) {
+      user.deletionReason = reason.trim().slice(0, 500);
+    }
+    await this.usersRepo.save(user);
+
+    return {
+      id: user.id,
+      isActive: user.isActive,
+      deactivatedAt: user.deactivatedAt,
+      message:
+        'Your account has been deactivated. Sign in again any time to reactivate it.',
+    };
+  }
+
+  /** Re-enable a previously deactivated account (used during login). */
+  async reactivateOwnAccount(userId: string) {
+    const user = await this.findOneOrFail(userId);
+    if (user.deletedAt) {
+      throw new ForbiddenException(
+        'This account has been permanently deleted and cannot be reactivated.',
+      );
+    }
+    user.isActive = true;
+    user.deactivatedAt = null;
+    user.deletionScheduledAt = null;
+    await this.usersRepo.save(user);
+    return {
+      id: user.id,
+      isActive: true,
+      message: 'Welcome back — your account is active again.',
+    };
+  }
+
+  /**
+   * Self-service account deletion. We schedule a soft-delete (30-day grace
+   * window) so the user can recover the account by signing back in. After
+   * the grace window a scheduled job hard-deletes the row.
+   */
+  async requestOwnAccountDeletion(
+    userId: string,
+    currentPassword: string,
+    reason?: string,
+  ) {
+    if (!currentPassword?.trim()) {
+      throw new BadRequestException(
+        'Current password is required to delete your account',
+      );
+    }
+    const user = await this.findOneOrFail(userId);
+    const withPassword = await this.findByEmailWithPassword(user.email);
+    if (!withPassword) {
+      throw new NotFoundException('User not found');
+    }
+    const ok = await bcrypt.compare(currentPassword, withPassword.passwordHash);
+    if (!ok) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    if (this.isElevatedAdmin(user.userKind)) {
+      throw new ForbiddenException(
+        'Admin accounts cannot self-delete. Contact a super admin.',
+      );
+    }
+
+    const now = new Date();
+    user.isActive = false;
+    user.deactivatedAt = user.deactivatedAt ?? now;
+    user.deletionScheduledAt = now;
+    if (reason && reason.trim()) {
+      user.deletionReason = reason.trim().slice(0, 500);
+    }
+    await this.usersRepo.save(user);
+
+    const purgeAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    return {
+      id: user.id,
+      scheduledAt: user.deletionScheduledAt,
+      purgeAt,
+      message:
+        'Your account is scheduled for permanent deletion in 30 days. Sign in any time before then to cancel.',
+    };
   }
 
   async generateUniqueUsername(

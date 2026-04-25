@@ -24,6 +24,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from './user.entity';
+import { AccountActionDto } from './dto/account-action.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -66,6 +67,46 @@ export class UserController {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.usersService.updateOwnProfile(actor.id, dto);
+  }
+
+  @Post('me/deactivate')
+  @ApiOperation({
+    summary: 'Deactivate the signed-in user account (reversible)',
+    description:
+      'Soft-disables the account so the user can no longer sign in. ' +
+      'They can reactivate any time by signing back in. Requires the ' +
+      'current password as confirmation.',
+  })
+  @ApiBody({ type: AccountActionDto })
+  deactivateOwnAccount(
+    @CurrentUser() actor: User,
+    @Body() dto: AccountActionDto,
+  ) {
+    return this.usersService.deactivateOwnAccount(
+      actor.id,
+      dto.currentPassword,
+      dto.reason,
+    );
+  }
+
+  @Delete('me')
+  @ApiOperation({
+    summary: 'Schedule the signed-in user account for permanent deletion',
+    description:
+      'Marks the account for hard-deletion after a 30-day grace window. ' +
+      'The user can cancel the deletion by signing in again before the ' +
+      'window elapses. Requires the current password as confirmation.',
+  })
+  @ApiBody({ type: AccountActionDto })
+  deleteOwnAccount(
+    @CurrentUser() actor: User,
+    @Body() dto: AccountActionDto,
+  ) {
+    return this.usersService.requestOwnAccountDeletion(
+      actor.id,
+      dto.currentPassword,
+      dto.reason,
+    );
   }
 
   @Post()
