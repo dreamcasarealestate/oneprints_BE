@@ -62,6 +62,33 @@ export class User {
   @Column({ select: false })
   passwordHash: string;
 
+  /**
+   * Soft-disable flag. When false, user cannot log in but data is preserved
+   * (used for self-service account deactivation / admin suspension).
+   */
+  @Column({ type: 'boolean', default: true })
+  isActive: boolean;
+
+  /** When the account was deactivated (soft-disabled). */
+  @Column({ type: 'timestamptz', nullable: true })
+  deactivatedAt: Date | null;
+
+  /**
+   * When the account was scheduled for permanent deletion. Rows kept around
+   * for the grace window so legally-required records (orders, invoices) stay
+   * intact. Hard delete happens by a scheduled job after the grace period.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  deletionScheduledAt: Date | null;
+
+  /** When the user actually got purged from the system. */
+  @Column({ type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
+
+  /** Optional reason captured for analytics & support follow-ups. */
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  deletionReason: string | null;
+
   @OneToMany(() => Order, (o) => o.user)
   orders: Order[];
 

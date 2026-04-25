@@ -81,6 +81,23 @@ export class AuthService {
     if (!ok) {
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // Hard-deleted accounts cannot sign in.
+    if (user.deletedAt) {
+      throw new UnauthorizedException(
+        'This account has been permanently deleted.',
+      );
+    }
+
+    // If the account was deactivated or scheduled for deletion, signing in
+    // cancels the action and reactivates the account.
+    if (user.isActive === false || user.deletionScheduledAt) {
+      await this.usersService.reactivateOwnAccount(user.id);
+      user.isActive = true;
+      user.deactivatedAt = null;
+      user.deletionScheduledAt = null;
+    }
+
     const { passwordHash: _, ...safe } = user;
     return this.issueTokens(safe as typeof user);
   }

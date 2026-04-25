@@ -5,6 +5,7 @@ import { UserController } from './user.controller';
 import { User } from './user.entity';
 import { Role } from './role.entity';
 import { UsersService } from './users.service';
+import { UserSchemaBootstrapService } from './user-schema-bootstrap.service';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { UsersService } from './users.service';
     forwardRef(() => AuthModule),
   ],
   controllers: [UserController],
-  providers: [UsersService],
+  providers: [UsersService, UserSchemaBootstrapService],
   exports: [UsersService],
 })
 export class UsersModule {}
