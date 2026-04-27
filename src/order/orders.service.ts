@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
@@ -12,6 +13,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { DispatchOrderDto } from './dto/dispatch-order.dto';
 import { BranchesService } from '../branch/branch.service';
+import { PincodeGeoService } from '../branch/pincode-geo.service';
 import { NotificationsService } from '../notification/notifications.service';
 import { User } from '../user/user.entity';
 import { UserKind } from '../user/user-kind.enum';
@@ -47,6 +49,7 @@ export class OrdersService {
     @InjectRepository(OrderStatusLog)
     private readonly logRepo: Repository<OrderStatusLog>,
     private readonly branchesService: BranchesService,
+    private readonly pincodeGeo: PincodeGeoService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -67,6 +70,56 @@ export class OrdersService {
     await this.logRepo.save(log);
   }
 
+  /**
+   * Generate a short, human-friendly, low-collision order code.
+   * Format: `OPR-YYMMDD-XXXXXX` where the suffix is base32 from
+   * `crypto.randomBytes`. Retries on the unlikely DB unique clash.
+   */
+  private async generateOrderNumber(): Promise<string> {
+    const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const now = new Date();
+      const yy = String(now.getFullYear() % 100).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const bytes = randomBytes(4);
+      let suffix = '';
+      for (let i = 0; i < 6; i += 1) {
+        suffix += ALPHABET[bytes[i % bytes.length] % ALPHABET.length];
+      }
+      const candidate = `OPR-${yy}${mm}${dd}-${suffix}`;
+      const clash = await this.ordersRepo.findOne({
+        where: { orderNumber: candidate },
+        select: { id: true },
+      });
+      if (!clash) return candidate;
+    }
+    return `OPR-${Date.now().toString(36).toUpperCase()}`;
+  }
+
+  /**
+   * Generate `orderNumber` for any rows that pre-date the column.
+   * Idempotent and intentionally cheap — runs once per list/detail
+   * fetch but only persists rows that are actually missing a number.
+   */
+  private async backfillOrderNumbers(orders: Order[]): Promise<Order[]> {
+    const missing = orders.filter((o) => !o.orderNumber);
+    if (missing.length === 0) return orders;
+    for (const order of missing) {
+      order.orderNumber = await this.generateOrderNumber();
+      try {
+        await this.ordersRepo.update(
+          { id: order.id },
+          { orderNumber: order.orderNumber },
+        );
+      } catch {
+        // If the update races another writer just leave the in-memory
+        // value in place; the next read will resolve the persisted one.
+      }
+    }
+    return orders;
+  }
+
   async createForUser(userId: string, dto: CreateOrderDto) {
     const pin =
       dto.shippingAddress?.pinCode?.replace(/\s/g, '') ||
@@ -74,12 +127,27 @@ export class OrdersService {
       '';
     const shipLat = dto.shippingAddress?.latitude;
     const shipLng = dto.shippingAddress?.longitude;
+
+    // Fulfilment must always go to the *nearest* active branch — never the
+    // alphabetical default. If the FE didn't capture lat/lng (browser
+    // geolocation is opt-in and frequently denied), fall back to a server-
+    // side PIN-code lookup so haversine still has coordinates to work with.
+    let resolvedLat = typeof shipLat === 'number' ? shipLat : null;
+    let resolvedLng = typeof shipLng === 'number' ? shipLng : null;
+    if ((resolvedLat == null || resolvedLng == null) && pin) {
+      const geo = await this.pincodeGeo.resolve(pin);
+      if (geo) {
+        resolvedLat = resolvedLat ?? geo.lat;
+        resolvedLng = resolvedLng ?? geo.lng;
+      }
+    }
+
     const branch =
-      pin || typeof shipLat === 'number' || typeof shipLng === 'number'
+      pin || resolvedLat !== null || resolvedLng !== null
         ? await this.branchesService.assignBranchForOrder({
             pinCode: pin,
-            latitude: typeof shipLat === 'number' ? shipLat : null,
-            longitude: typeof shipLng === 'number' ? shipLng : null,
+            latitude: resolvedLat,
+            longitude: resolvedLng,
           })
         : null;
 
@@ -104,8 +172,11 @@ export class OrdersService {
     const total =
       dto.totalAmount ?? Math.round((subtotal + gst + designerFee) * 100) / 100;
 
+    const orderNumber = await this.generateOrderNumber();
+
     const order = this.ordersRepo.create({
       customerId: userId,
+      orderNumber,
       branchId: branch?.id ?? null,
       designerId: dto.designerId ?? null,
       designerFee,
@@ -135,6 +206,8 @@ export class OrdersService {
         unitPrice: row.unitPrice,
         size: row.size ?? null,
         color: row.color ?? null,
+        productImage: row.productImage ?? null,
+        customizedImage: row.customizedImage ?? null,
         designData: row.designData ?? null,
         measurements: row.measurements ?? null,
         customizationData: row.customizationData ?? null,
@@ -158,41 +231,45 @@ export class OrdersService {
   }
 
   async findMine(userId: string) {
-    return this.ordersRepo.find({
+    const orders = await this.ordersRepo.find({
       where: { customerId: userId },
       relations: ['items', 'branch'],
       order: { createdAt: 'DESC' },
     });
+    return this.backfillOrderNumbers(orders);
   }
 
-  findAllForStaff(actor: User) {
+  async findAllForStaff(actor: User) {
     const normalizedKind = normalizeKnownUserKind(actor.userKind);
     if (normalizedKind === UserKind.SUPER_ADMIN || normalizedKind === UserKind.OPS_HEAD) {
-      return this.ordersRepo.find({
+      const orders = await this.ordersRepo.find({
         relations: ['user', 'items', 'branch'],
         order: { createdAt: 'DESC' },
       });
+      return this.backfillOrderNumbers(orders);
     }
 
     if (
       (isBranchAdminRole(normalizedKind) || normalizedKind === UserKind.STAFF) &&
       actor.branchId
     ) {
-      return this.ordersRepo.find({
+      const orders = await this.ordersRepo.find({
         where: { branchId: actor.branchId },
         relations: ['user', 'items', 'branch'],
         order: { createdAt: 'DESC' },
       });
+      return this.backfillOrderNumbers(orders);
     }
 
     if (normalizedKind === UserKind.ADMIN || normalizedKind === UserKind.STAFF) {
       throw new ForbiddenException('Your account has no branch assignment.');
     }
 
-    return this.ordersRepo.find({
+    const orders = await this.ordersRepo.find({
       relations: ['user', 'items', 'branch'],
       order: { createdAt: 'DESC' },
     });
+    return this.backfillOrderNumbers(orders);
   }
 
   async findOneForUser(
@@ -205,6 +282,9 @@ export class OrdersService {
       relations: ['items', 'branch', 'statusLogs', 'user'],
     });
     if (!order) throw new NotFoundException('Order not found');
+    if (!order.orderNumber) {
+      await this.backfillOrderNumbers([order]);
+    }
 
     const isStaff =
       !!actor && isStaffOperationRole(actor.userKind as UserKind);

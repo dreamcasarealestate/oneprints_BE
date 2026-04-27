@@ -39,6 +39,14 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  /**
+   * Human-readable order code shown to shoppers and operators
+   * (e.g. `OPR-260427-A1B2C3`). Generated at creation time. Older
+   * rows can be `null` until the lazy backfill in OrdersService runs.
+   */
+  @Column({ type: 'varchar', length: 32, nullable: true, unique: true })
+  orderNumber: string | null;
+
   @Column({ type: 'uuid' })
   customerId: string;
 
