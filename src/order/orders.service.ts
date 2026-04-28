@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -12,9 +13,11 @@ import { OrderStatusLog } from './order-status-log.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { DispatchOrderDto } from './dto/dispatch-order.dto';
+import { UpdateOrderShippingAddressDto } from './dto/update-shipping-address.dto';
 import { BranchesService } from '../branch/branch.service';
 import { PincodeGeoService } from '../branch/pincode-geo.service';
 import { NotificationsService } from '../notification/notifications.service';
+import { Address } from '../address/address.entity';
 import { User } from '../user/user.entity';
 import { UserKind } from '../user/user-kind.enum';
 import {
@@ -39,6 +42,43 @@ const STATUS_LABELS: Record<string, string> = {
   refunded: 'Refunded',
 };
 
+/**
+ * Statuses where the customer can still safely change the shipping
+ * address. Once the order has been picked up for production it
+ * either has a printed dispatch note already or is moments away
+ * from one — at which point a late address swap risks a wrong
+ * delivery. Mirrors the FE gate in `canEditShippingAddress`.
+ */
+const SHIPPING_ADDRESS_EDITABLE_STATUSES: ReadonlySet<string> = new Set([
+  'order_placed',
+  'payment_pending',
+  'payment_confirmed',
+  'design_pending',
+]);
+
+/** Lowercased trim — used when looking up matching saved addresses. */
+function fold(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+/**
+ * Returns true when the two stored addresses look like the same
+ * physical place. We tolerate casing/whitespace differences so a
+ * user editing "Plot 12 " into "plot 12" still matches the saved row.
+ */
+function addressMatches(
+  saved: Address,
+  draft: UpdateOrderShippingAddressDto,
+): boolean {
+  return (
+    fold(saved.addressLine1) === fold(draft.addressLine1) &&
+    fold(saved.addressLine2 ?? '') === fold(draft.addressLine2 ?? '') &&
+    fold(saved.city) === fold(draft.city) &&
+    fold(saved.state) === fold(draft.state) &&
+    fold(saved.pinCode) === fold(draft.pinCode)
+  );
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -48,6 +88,8 @@ export class OrdersService {
     private readonly itemsRepo: Repository<OrderItem>,
     @InjectRepository(OrderStatusLog)
     private readonly logRepo: Repository<OrderStatusLog>,
+    @InjectRepository(Address)
+    private readonly addressesRepo: Repository<Address>,
     private readonly branchesService: BranchesService,
     private readonly pincodeGeo: PincodeGeoService,
     private readonly notifications: NotificationsService,
@@ -400,5 +442,175 @@ export class OrdersService {
         'Invoice PDF generation is not wired yet. Use order detail for line items and GST.',
       downloadUrl: null as string | null,
     };
+  }
+
+  /**
+   * Customer-only: replace the shipping address snapshot on an order.
+   * Blocked once the order has progressed past the early stages —
+   * see `SHIPPING_ADDRESS_EDITABLE_STATUSES` for the canonical gate.
+   *
+   * When `syncToAddressBook` is true (default), we look for a saved
+   * address that matches the *previous* shipping snapshot (before
+   * the edit) and update that row. If no match is found we create a
+   * new saved address so the change is reflected in the address book.
+   */
+  async updateShippingAddress(
+    orderId: string,
+    userId: string,
+    dto: UpdateOrderShippingAddressDto,
+  ) {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.customerId !== userId) throw new ForbiddenException();
+
+    if (!SHIPPING_ADDRESS_EDITABLE_STATUSES.has(order.status)) {
+      throw new BadRequestException(
+        `Shipping address can no longer be changed once the order is "${
+          STATUS_LABELS[order.status] ?? order.status
+        }".`,
+      );
+    }
+
+    const previous =
+      (order.shippingAddress as Record<string, unknown> | null) ?? null;
+
+    const nextSnapshot: Record<string, unknown> = {
+      fullName: dto.fullName.trim(),
+      phone: dto.phone.trim(),
+      email: dto.email?.trim() || (previous?.email as string | undefined) || '',
+      addressLine1: dto.addressLine1.trim(),
+      addressLine2: dto.addressLine2?.trim() || '',
+      city: dto.city.trim(),
+      state: dto.state.trim(),
+      country: dto.country.trim(),
+      pinCode: dto.pinCode.trim(),
+      ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
+      ...(typeof dto.longitude === 'number'
+        ? { longitude: dto.longitude }
+        : {}),
+    };
+
+    order.shippingAddress = nextSnapshot;
+
+    // Re-resolve the fulfilment branch when the pin-code (or geo)
+    // actually moves. Skipping when nothing routing-relevant changed
+    // keeps the change cheap and avoids accidental branch swaps.
+    const previousPin = String(
+      (previous?.pinCode as string | undefined) ?? '',
+    ).trim();
+    const previousLat =
+      typeof previous?.latitude === 'number'
+        ? (previous.latitude as number)
+        : null;
+    const previousLng =
+      typeof previous?.longitude === 'number'
+        ? (previous.longitude as number)
+        : null;
+    const pinChanged = dto.pinCode.trim() !== previousPin;
+    const latChanged =
+      typeof dto.latitude === 'number' && dto.latitude !== previousLat;
+    const lngChanged =
+      typeof dto.longitude === 'number' && dto.longitude !== previousLng;
+
+    if (pinChanged || latChanged || lngChanged) {
+      let resolvedLat = typeof dto.latitude === 'number' ? dto.latitude : null;
+      let resolvedLng = typeof dto.longitude === 'number' ? dto.longitude : null;
+      if ((resolvedLat == null || resolvedLng == null) && dto.pinCode) {
+        const geo = await this.pincodeGeo.resolve(dto.pinCode.trim());
+        if (geo) {
+          resolvedLat = resolvedLat ?? geo.lat;
+          resolvedLng = resolvedLng ?? geo.lng;
+        }
+      }
+      const branch = await this.branchesService.assignBranchForOrder({
+        pinCode: dto.pinCode.trim(),
+        latitude: resolvedLat,
+        longitude: resolvedLng,
+      });
+      if (branch?.id) order.branchId = branch.id;
+    }
+
+    await this.ordersRepo.save(order);
+
+    if (dto.syncToAddressBook ?? true) {
+      await this.syncSavedAddress(userId, previous, dto);
+    }
+
+    await this.appendLog(
+      order.id,
+      order.status,
+      order.status,
+      userId,
+      'Shipping address updated by customer',
+    );
+
+    return this.findOneForUser(order.id, userId, null);
+  }
+
+  /**
+   * Best-effort sync of an order address edit into the user's saved
+   * address book. We prefer to update the *matching saved row* (so
+   * a tweaked apartment number doesn't clutter the list with a
+   * second copy). If the previous order snapshot has no match —
+   * e.g. the order was placed as a guest checkout without saving —
+   * a new saved row is inserted instead.
+   */
+  private async syncSavedAddress(
+    userId: string,
+    previous: Record<string, unknown> | null,
+    dto: UpdateOrderShippingAddressDto,
+  ) {
+    const saved = await this.addressesRepo.find({
+      where: { userId },
+      order: { isDefault: 'DESC', createdAt: 'DESC' },
+    });
+
+    let target: Address | null = null;
+    if (previous) {
+      const previousDraft: UpdateOrderShippingAddressDto = {
+        fullName: String(previous.fullName ?? ''),
+        phone: String(previous.phone ?? ''),
+        addressLine1: String(previous.addressLine1 ?? ''),
+        addressLine2:
+          typeof previous.addressLine2 === 'string'
+            ? previous.addressLine2
+            : undefined,
+        city: String(previous.city ?? ''),
+        state: String(previous.state ?? ''),
+        country: String(previous.country ?? ''),
+        pinCode: String(previous.pinCode ?? ''),
+      };
+      target = saved.find((row) => addressMatches(row, previousDraft)) ?? null;
+    }
+    if (!target) {
+      target = saved.find((row) => addressMatches(row, dto)) ?? null;
+    }
+
+    if (target) {
+      target.fullName = dto.fullName.trim();
+      target.phone = dto.phone.trim();
+      target.addressLine1 = dto.addressLine1.trim();
+      target.addressLine2 = dto.addressLine2?.trim() || null;
+      target.city = dto.city.trim();
+      target.state = dto.state.trim();
+      target.country = dto.country.trim();
+      target.pinCode = dto.pinCode.trim();
+      await this.addressesRepo.save(target);
+      return;
+    }
+
+    const fresh = this.addressesRepo.create({
+      userId,
+      isDefault: saved.length === 0,
+      fullName: dto.fullName.trim(),
+      phone: dto.phone.trim(),
+      addressLine1: dto.addressLine1.trim(),
+      addressLine2: dto.addressLine2?.trim() || null,
+      city: dto.city.trim(),
+      state: dto.state.trim(),
+      country: dto.country.trim(),
+      pinCode: dto.pinCode.trim(),
+    });
+    await this.addressesRepo.save(fresh);
   }
 }

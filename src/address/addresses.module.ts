@@ -8,6 +8,9 @@ import { AddressesController } from './addresses.controller';
   imports: [TypeOrmModule.forFeature([Address])],
   controllers: [AddressesController],
   providers: [AddressesService],
-  exports: [AddressesService],
+  // Re-export the repository so feature modules (e.g. OrdersModule)
+  // can inject `Repository<Address>` for cross-cutting work like
+  // syncing an order's shipping address back to the user's address book.
+  exports: [AddressesService, TypeOrmModule],
 })
 export class AddressesModule {}

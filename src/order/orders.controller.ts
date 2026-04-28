@@ -36,6 +36,7 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { DispatchOrderDto } from './dto/dispatch-order.dto';
 import { OrderReturnDto } from './dto/order-action.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { UpdateOrderShippingAddressDto } from './dto/update-shipping-address.dto';
 
 @Controller('orders')
 @ApiTags('Orders')
@@ -174,5 +175,21 @@ export class OrdersController {
     @CurrentUser() user: User,
   ) {
     return this.ordersService.dispatch(id, dto, user);
+  }
+
+  @Patch(':id/shipping-address')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary:
+      "Customer updates the shipping address on their own order. Blocked once the order has progressed past 'design_pending' — see service for the canonical gate.",
+  })
+  @ApiParam({ name: 'id', description: 'Order id (UUID)' })
+  @ApiBody({ type: UpdateOrderShippingAddressDto })
+  updateShippingAddress(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateOrderShippingAddressDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.ordersService.updateShippingAddress(id, user.id, dto);
   }
 }

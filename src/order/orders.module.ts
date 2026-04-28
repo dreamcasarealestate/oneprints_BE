@@ -9,12 +9,17 @@ import { PaymentsService } from './payments.service';
 import { OrdersController } from './orders.controller';
 import { BranchModule } from '../branch/branch.module';
 import { NotificationsModule } from '../notification/notifications.module';
+import { AddressesModule } from '../address/addresses.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Order, OrderItem, OrderStatusLog, Payment]),
     BranchModule,
     NotificationsModule,
+    // Bring in the Address repository so we can keep an order's shipping
+    // address in sync with the matching saved address when the customer
+    // edits it from the order detail page.
+    AddressesModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, PaymentsService],
