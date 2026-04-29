@@ -17,6 +17,7 @@ import { UpdateOrderShippingAddressDto } from './dto/update-shipping-address.dto
 import { BranchesService } from '../branch/branch.service';
 import { PincodeGeoService } from '../branch/pincode-geo.service';
 import { NotificationsService } from '../notification/notifications.service';
+import { MailService } from '../mail/mail.service';
 import { Address } from '../address/address.entity';
 import { User } from '../user/user.entity';
 import { UserKind } from '../user/user-kind.enum';
@@ -93,6 +94,7 @@ export class OrdersService {
     private readonly branchesService: BranchesService,
     private readonly pincodeGeo: PincodeGeoService,
     private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
   ) {}
 
   private async appendLog(
@@ -261,6 +263,29 @@ export class OrdersService {
     await this.appendLog(saved.id, null, 'order_placed', userId, 'Order created');
 
     await this.notifications.notifyOrderPlaced(userId, saved.id);
+
+    // Send order confirmation email (fire-and-forget — don't block order creation)
+    void (async () => {
+      try {
+        const customer = (saved as any).customer as { email?: string; name?: string } | undefined;
+        const emailTo = customer?.email ?? '';
+        if (emailTo) {
+          await this.mail.sendOrderConfirmation({
+            to: emailTo,
+            customerName: customer?.name ?? 'Customer',
+            orderNumber: saved.orderNumber ?? saved.id.slice(0, 8).toUpperCase(),
+            orderTotal: saved.totalAmount?.toFixed(2) ?? '0.00',
+            items: items.map((i) => ({
+              name: i.productName,
+              qty: i.quantity,
+              price: (i.unitPrice * i.quantity).toFixed(2),
+            })),
+            actionUrl: `${process.env.FRONTEND_URL ?? ''}/shop/my-orders`,
+          });
+        }
+      } catch { /* mail failure must not break order creation */ }
+    })();
+
     if (branch?.id) {
       await this.notifications.notifyBranchStaff(
         branch.id,
@@ -382,6 +407,33 @@ export class OrdersService {
       dto.status,
       STATUS_LABELS[dto.status] ?? dto.status,
     );
+
+    // Email on key status transitions
+    if (['dispatched', 'delivered', 'cancelled'].includes(dto.status)) {
+      void (async () => {
+        try {
+          const full = await this.ordersRepo.findOne({ where: { id }, relations: ['customer', 'items'] });
+          const emailTo = (full as any)?.customer?.email ?? '';
+          if (emailTo) {
+            await this.mail.sendOrderStatusUpdate({
+              to: emailTo,
+              customerName: (full as any)?.customer?.name ?? 'Customer',
+              orderNumber: full?.orderNumber ?? id.slice(0, 8).toUpperCase(),
+              orderTotal: full?.totalAmount?.toFixed(2) ?? '0.00',
+              items: ((full as any)?.items ?? []).map((i: any) => ({
+                name: i.productName,
+                qty: i.quantity,
+                price: (i.unitPrice * i.quantity).toFixed(2),
+              })),
+              statusLabel: STATUS_LABELS[dto.status] ?? dto.status,
+              trackingUrl: (full as any)?.trackingId ? `https://track.delhivery.com/?waybill=${(full as any).trackingId}` : undefined,
+              actionUrl: `${process.env.FRONTEND_URL ?? ''}/shop/my-orders`,
+            });
+          }
+        } catch { /* fire-and-forget */ }
+      })();
+    }
+
     return this.findOneForUser(id, null, actor);
   }
 

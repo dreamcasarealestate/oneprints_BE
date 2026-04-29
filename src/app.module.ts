@@ -21,6 +21,10 @@ import { FavoritesModule } from './favorites/favorites.module';
 import { S3Module } from './s3/s3.module';
 import { ProductTemplatesModule } from './product-templates/product-templates.module';
 import { CartModule } from './cart/cart.module';
+import { TemplatesModule } from './templates/templates.module';
+import { CouponsModule } from './coupon/coupons.module';
+import { MailModule } from './mail/mail.module';
+import { ProductionModule } from './production/production.module';
 
 @Module({
   imports: [
@@ -83,6 +87,10 @@ import { CartModule } from './cart/cart.module';
     S3Module,
     ProductTemplatesModule,
     CartModule,
+    TemplatesModule,
+    CouponsModule,
+    MailModule,
+    ProductionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
