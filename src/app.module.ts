@@ -20,6 +20,7 @@ import { CorporateModule } from './corporate/corporate.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { S3Module } from './s3/s3.module';
 import { ProductTemplatesModule } from './product-templates/product-templates.module';
+import { CartModule } from './cart/cart.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { ProductTemplatesModule } from './product-templates/product-templates.mo
     CorporateModule,
     S3Module,
     ProductTemplatesModule,
+    CartModule,
   ],
   controllers: [AppController],
   providers: [AppService],
