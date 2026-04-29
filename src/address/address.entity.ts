@@ -30,6 +30,9 @@ export class Address {
   @Column()
   phone: string;
 
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  email: string | null;
+
   @Column()
   addressLine1: string;
 

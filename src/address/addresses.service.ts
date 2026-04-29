@@ -28,6 +28,7 @@ export class AddressesService {
       isDefault: dto.isDefault ?? false,
       fullName: dto.fullName.trim(),
       phone: dto.phone.trim(),
+      email: dto.email?.trim() || null,
       addressLine1: dto.addressLine1.trim(),
       addressLine2: dto.addressLine2?.trim() ?? null,
       city: dto.city.trim(),
@@ -46,6 +47,7 @@ export class AddressesService {
     }
     if (dto.fullName !== undefined) a.fullName = dto.fullName.trim();
     if (dto.phone !== undefined) a.phone = dto.phone.trim();
+    if (dto.email !== undefined) a.email = dto.email?.trim() || null;
     if (dto.addressLine1 !== undefined)
       a.addressLine1 = dto.addressLine1.trim();
     if (dto.addressLine2 !== undefined)
