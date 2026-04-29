@@ -17,6 +17,11 @@ export class CreateAddressDto {
   @MinLength(5)
   phone: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  email?: string;
+
   @ApiProperty()
   @IsString()
   @MinLength(3)

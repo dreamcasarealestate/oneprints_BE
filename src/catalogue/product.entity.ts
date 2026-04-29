@@ -162,6 +162,13 @@ export class Product {
   @Column('text', { nullable: true })
   restockNote: string | null;
 
+  /**
+   * List of city / state / pincode tokens where this product can ship.
+   * Empty array = "ships everywhere". Shown on the PDP under shipping info.
+   */
+  @Column('jsonb', { default: [] })
+  deliverableLocations: string[];
+
   /** Deprecated: catalogue is global; kept for DB compatibility, always null. */
   @Column('jsonb', { nullable: true })
   branchAvailability: string[] | null;

@@ -386,6 +386,11 @@ export class CatalogueService {
           ? Number(dto.stockQuantity)
           : null,
       restockNote: dto.restockNote?.trim() ?? null,
+      deliverableLocations: Array.isArray(dto.deliverableLocations)
+        ? dto.deliverableLocations
+            .map((s) => String(s).trim())
+            .filter((s) => s.length > 0)
+        : [],
       branchAvailability: null,
       createdByUserId: actor?.id ?? null,
       createdByDisplayName: dn,
@@ -478,6 +483,13 @@ export class CatalogueService {
         dto.stockQuantity === null ? null : Number(dto.stockQuantity);
     if (dto.restockNote !== undefined)
       p.restockNote = dto.restockNote?.trim() ?? null;
+    if (dto.deliverableLocations !== undefined) {
+      p.deliverableLocations = Array.isArray(dto.deliverableLocations)
+        ? dto.deliverableLocations
+            .map((s) => String(s).trim())
+            .filter((s) => s.length > 0)
+        : [];
+    }
     p.branchAvailability = null;
     if (actor) {
       p.updatedByUserId = actor.id;
@@ -584,6 +596,7 @@ export class CatalogueService {
             trackInventory: false,
             stockQuantity: null,
             restockNote: null,
+            deliverableLocations: [],
             branchAvailability: null,
             createdByUserId: null,
             createdByDisplayName: null,

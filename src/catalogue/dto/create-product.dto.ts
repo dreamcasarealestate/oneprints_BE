@@ -279,4 +279,14 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   restockNote?: string | null;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Cities / states / pincodes where the product can ship. Empty = ships everywhere.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  deliverableLocations?: string[];
 }
