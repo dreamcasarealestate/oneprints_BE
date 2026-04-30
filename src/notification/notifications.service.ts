@@ -133,13 +133,14 @@ export class NotificationsService {
     );
   }
 
-  notifyOrderPlaced(userId: string, orderId: string) {
+  notifyOrderPlaced(userId: string, orderId: string, orderNumber?: string | null) {
+    const code = orderNumber?.trim() || `OPR-${orderId.slice(0, 8).toUpperCase()}`;
     return this.create(
       userId,
       'order',
       'Order placed',
-      `Your order #${orderId.slice(0, 8)} has been placed successfully.`,
-      { orderId, event: 'order_placed' },
+      `Your order ${code} has been placed successfully.`,
+      { orderId, orderNumber: orderNumber ?? null, event: 'order_placed' },
       { dedupeKey: `order_placed:${orderId}` },
     );
   }
@@ -183,13 +184,15 @@ export class NotificationsService {
     orderId: string,
     status: string,
     statusLabel: string,
+    orderNumber?: string | null,
   ) {
+    const code = orderNumber?.trim() || `OPR-${orderId.slice(0, 8).toUpperCase()}`;
     return this.create(
       userId,
       'order',
       `Order update: ${statusLabel}`,
-      `Order #${orderId.slice(0, 8)} status changed to ${statusLabel}.`,
-      { orderId, status, event: 'order_status_changed' },
+      `Order ${code} status changed to ${statusLabel}.`,
+      { orderId, orderNumber: orderNumber ?? null, status, event: 'order_status_changed' },
       {
         priority: status === 'cancelled' ? 'high' : 'normal',
         dedupeKey: `order_status:${orderId}:${status}`,
