@@ -461,11 +461,16 @@ export class UsersService {
       user.phoneNumber = dto.phoneNumber.trim();
     }
 
-    if (
-      dto.userKind &&
-      normalizeKnownUserKind(dto.userKind) !==
-        normalizeKnownUserKind(user.userKind)
-    ) {
+    // Compare the *raw* strings rather than the normalized kinds.
+    // `normalizeKnownUserKind` collapses legacy aliases (e.g.
+    // `branch_staff` → `staff`, `branch_manager` → `admin`) to the
+    // same canonical value. If we compared normalized values an
+    // admin trying to upgrade an old `branch_staff` row to the new
+    // `staff` kind would silently no-op, leaving both the DB and
+    // the response payload showing `branch_staff` even though the
+    // FE sent `staff` — exactly the bug the admin/users edit form
+    // surfaced.
+    if (dto.userKind && dto.userKind !== user.userKind) {
       const nextKind = dto.userKind as UserKind;
       this.assertCreatableUserKind(actor, nextKind);
       await this.ensureAdminStillExists(user.userKind, nextKind);

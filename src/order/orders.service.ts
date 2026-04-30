@@ -262,7 +262,7 @@ export class OrdersService {
 
     await this.appendLog(saved.id, null, 'order_placed', userId, 'Order created');
 
-    await this.notifications.notifyOrderPlaced(userId, saved.id);
+    await this.notifications.notifyOrderPlaced(userId, saved.id, saved.orderNumber);
 
     // Send order confirmation email (fire-and-forget — don't block order creation)
     void (async () => {
@@ -287,10 +287,13 @@ export class OrdersService {
     })();
 
     if (branch?.id) {
+      const branchOrderCode =
+        saved.orderNumber?.trim() ||
+        `OPR-${saved.id.slice(0, 8).toUpperCase()}`;
       await this.notifications.notifyBranchStaff(
         branch.id,
         saved.id,
-        `New order ${saved.id.slice(0, 8)}… — ${saved.description.slice(0, 80)}`,
+        `New order ${branchOrderCode} — ${saved.description.slice(0, 80)}`,
       );
     }
 
@@ -406,6 +409,7 @@ export class OrdersService {
       order.id,
       dto.status,
       STATUS_LABELS[dto.status] ?? dto.status,
+      order.orderNumber,
     );
 
     // Email on key status transitions
@@ -482,6 +486,7 @@ export class OrdersService {
       order.id,
       'dispatched',
       'Dispatched',
+      order.orderNumber,
     );
     return this.findOneForUser(id, null, actor);
   }
