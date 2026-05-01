@@ -1,13 +1,17 @@
 import {
   IsArray,
   IsBoolean,
+  IsIn,
+  IsInt,
   IsNotEmpty,
-  IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
+  Min,
 } from 'class-validator';
+import { TEMPLATE_STATUSES, type TemplateStatus } from '../template.entity';
 
 export class CreateTemplateDto {
   @IsString()
@@ -18,6 +22,24 @@ export class CreateTemplateDto {
   @IsOptional()
   @IsString()
   categorySlug?: string;
+
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  productId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(50)
+  width?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(50)
+  height?: number;
 
   @IsOptional()
   @IsArray()
@@ -36,6 +58,19 @@ export class CreateTemplateDto {
   isPublic?: boolean;
 
   @IsOptional()
-  @IsNumber()
+  @IsBoolean()
+  featured?: boolean;
+
+  /**
+   * Only honoured when the caller has admin role; the controller will
+   * defensively force `pending` for non-admin submissions regardless
+   * of what is sent here.
+   */
+  @IsOptional()
+  @IsIn(TEMPLATE_STATUSES)
+  status?: TemplateStatus;
+
+  @IsOptional()
+  @IsInt()
   sortOrder?: number;
 }

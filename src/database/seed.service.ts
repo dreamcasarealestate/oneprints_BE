@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { CatalogueService } from '../catalogue/catalogue.service';
 import { UsersService } from '../user/users.service';
+import { TemplateCategoriesService } from '../templates/template-categories.service';
+import { TemplatesService } from '../templates/templates.service';
 
 @Injectable()
 export class SeedService implements OnModuleInit {
@@ -10,6 +12,8 @@ export class SeedService implements OnModuleInit {
     private readonly users: UsersService,
     private readonly config: ConfigService,
     private readonly catalogue: CatalogueService,
+    private readonly templateCategories: TemplateCategoriesService,
+    private readonly templates: TemplatesService,
   ) {}
 
   async onModuleInit() {
@@ -28,5 +32,11 @@ export class SeedService implements OnModuleInit {
 
     await this.users.syncAllUserRoleIds();
     await this.catalogue.ensureDefaultCategories();
+
+    // Template taxonomy + back-link any legacy DesignTemplate rows that
+    // only have a `categorySlug` (from the pre-FK schema) to the new
+    // TemplateCategory rows. Both calls are idempotent.
+    await this.templateCategories.ensureDefaults();
+    await this.templates.backfillCategoryIds();
   }
 }
