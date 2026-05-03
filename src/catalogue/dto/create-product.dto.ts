@@ -174,6 +174,33 @@ export class CreateProductDto {
   @IsObject()
   imagesBySideColour?: Record<string, Record<string, string[]>>;
 
+  @ApiPropertyOptional({
+    type: 'object',
+    description:
+      'Per-side print spec: { sideId: { printZone:{x,y,width,height}, physicalWidth?, physicalHeight?, physicalUnit? } }.',
+  })
+  @IsOptional()
+  @IsObject()
+  printSpecsBySide?: Record<string, Record<string, unknown>>;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    description:
+      'Per-side starter design template id (DesignTemplate.id). Hydrated into the customer editor when they open that side.',
+  })
+  @IsOptional()
+  @IsObject()
+  starterTemplateBySide?: Record<string, string | null>;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    description:
+      'Per-side inline-authored starter canvas state JSON. When set, takes precedence over starterTemplateBySide.',
+  })
+  @IsOptional()
+  @IsObject()
+  starterCanvasStateBySide?: Record<string, Record<string, unknown> | null>;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -253,6 +280,22 @@ export class CreateProductDto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Admin-authored SEO meta title (50–60 chars recommended). Falls back to the product name when blank.',
+  })
+  @IsOptional()
+  @IsString()
+  seoTitle?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Admin-authored SEO meta description (120–160 chars recommended). Falls back to the product description when blank.',
+  })
+  @IsOptional()
+  @IsString()
+  seoDescription?: string | null;
 
   @ApiPropertyOptional({
     type: [String],

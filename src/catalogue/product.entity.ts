@@ -93,6 +93,47 @@ export class Product {
   @Column({ type: 'jsonb', nullable: true })
   imagesBySideColour: Record<string, Record<string, string[]>> | null;
 
+  /**
+   * Per-side print specification — the rectangle on the canvas that
+   * is actually printable, plus the physical dimensions of that
+   * patch in real-world units. Lives at the product level (not the
+   * variant level) because the print zone for "Front" is the same
+   * regardless of which colour the customer picks.
+   *
+   * Shape: `{ [sideId]: { printZone: {x,y,w,h}, physicalWidth, physicalHeight, physicalUnit } }`
+   *
+   * Falls back to the parent category's `printSpec` when a side has
+   * no override — so categories can ship sensible defaults and
+   * admins only need to override per-product when the geometry
+   * differs (e.g. a 14" backpack patch vs a 17" backpack patch).
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  printSpecsBySide: Record<string, Record<string, unknown>> | null;
+
+  /**
+   * Per-side starter design — points to an existing
+   * `DesignTemplate.id` whose `canvasState` should hydrate the
+   * customer editor when they open this side. Lets one template
+   * (e.g. "Headline + tagline + logo") serve many products.
+   *
+   * Mutually compatible with `starterCanvasStateBySide`: when both
+   * are set, the inline-authored canvas state wins (it's strictly
+   * more specific to the variant's geometry).
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  starterTemplateBySide: Record<string, string | null> | null;
+
+  /**
+   * Per-side inline-authored starter canvas state. Saved by the
+   * admin authoring studio when the admin chooses to design slots
+   * directly on the product's blank mockup (instead of picking a
+   * generic template). Wins over `starterTemplateBySide` because
+   * it's authored against this product's exact dimensions and
+   * blank image, so slots line up pixel-perfect.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  starterCanvasStateBySide: Record<string, Record<string, unknown> | null> | null;
+
   @Column('jsonb', { default: [] })
   availableColours: string[];
 
@@ -142,6 +183,24 @@ export class Product {
   /** Search / merchandising tags (not product variants). */
   @Column('jsonb', { default: [] })
   tags: string[];
+
+  /**
+   * Admin-authored SEO meta title. Renders as the page `<title>`
+   * and Open Graph `og:title` when set; falls back to the product
+   * name otherwise. Recommended length: 50–60 characters so Google
+   * shows the full headline on SERPs.
+   */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  seoTitle: string | null;
+
+  /**
+   * Admin-authored SEO meta description. Renders as the meta
+   * description tag + Open Graph `og:description` when set; falls
+   * back to the product description / first highlight otherwise.
+   * Recommended length: 120–160 characters.
+   */
+  @Column({ type: 'varchar', length: 320, nullable: true })
+  seoDescription: string | null;
 
   /**
    * Bullet-point key features rendered under the "About this item" block on

@@ -275,8 +275,22 @@ export class CatalogueService {
       qb.andWhere('c.slug = :slug', { slug: q.categorySlug });
     }
     if (q.search?.trim()) {
+      // Search across the natural product name, SKU, description,
+      // admin-authored SEO meta, and the merchandising tags array
+      // (cast to text so we can do a single ILIKE pass without
+      // unnesting the JSONB column for every row). This is what
+      // makes "thermos" surface a vacuum bottle that the admin
+      // tagged `["bottle","thermos","steel"]` even though the
+      // product name itself never contains the word "thermos".
       qb.andWhere(
-        '(LOWER(p.name) LIKE :s OR LOWER(p.sku) LIKE :s OR LOWER(p.description) LIKE :s)',
+        `(
+          LOWER(p.name) LIKE :s OR
+          LOWER(p.sku) LIKE :s OR
+          LOWER(p.description) LIKE :s OR
+          LOWER(COALESCE(p."seoTitle", '')) LIKE :s OR
+          LOWER(COALESCE(p."seoDescription", '')) LIKE :s OR
+          LOWER(p.tags::text) LIKE :s
+        )`,
         { s: `%${q.search.trim().toLowerCase()}%` },
       );
     }
@@ -312,7 +326,17 @@ export class CatalogueService {
       if (q.search?.trim()) {
         const s = `%${q.search.trim().toLowerCase()}%`;
         qb.andWhere(
-          '(LOWER(p.name) LIKE :s OR LOWER(p.sku) LIKE :s OR LOWER(COALESCE(p.description, \'\')) LIKE :s OR LOWER(c.name) LIKE :s OR LOWER(c.slug) LIKE :s OR LOWER(COALESCE(p.createdByDisplayName, \'\')) LIKE :s)',
+          `(
+            LOWER(p.name) LIKE :s OR
+            LOWER(p.sku) LIKE :s OR
+            LOWER(COALESCE(p.description, '')) LIKE :s OR
+            LOWER(c.name) LIKE :s OR
+            LOWER(c.slug) LIKE :s OR
+            LOWER(COALESCE(p.createdByDisplayName, '')) LIKE :s OR
+            LOWER(COALESCE(p."seoTitle", '')) LIKE :s OR
+            LOWER(COALESCE(p."seoDescription", '')) LIKE :s OR
+            LOWER(p.tags::text) LIKE :s
+          )`,
           { s },
         );
       }
@@ -364,6 +388,9 @@ export class CatalogueService {
         : null,
       blankImagesBySideColour: dto.blankImagesBySideColour ?? null,
       imagesBySideColour: dto.imagesBySideColour ?? null,
+      printSpecsBySide: dto.printSpecsBySide ?? null,
+      starterTemplateBySide: dto.starterTemplateBySide ?? null,
+      starterCanvasStateBySide: dto.starterCanvasStateBySide ?? null,
       availableColours: dto.availableColours ?? [],
       variants: normalizeVariants(dto.variants),
       availableSizes: dto.availableSizes ?? [],
@@ -377,6 +404,10 @@ export class CatalogueService {
       gstRate: dto.gstRate ?? 18,
       isActive: dto.isActive ?? true,
       tags: dto.tags ?? [],
+      seoTitle: dto.seoTitle?.trim() ? dto.seoTitle.trim() : null,
+      seoDescription: dto.seoDescription?.trim()
+        ? dto.seoDescription.trim()
+        : null,
       highlights: normalizeHighlights(dto.highlights),
       trackInventory: dto.trackInventory ?? false,
       stockQuantity:
@@ -450,6 +481,12 @@ export class CatalogueService {
       p.blankImagesBySideColour = dto.blankImagesBySideColour ?? null;
     if (dto.imagesBySideColour !== undefined)
       p.imagesBySideColour = dto.imagesBySideColour ?? null;
+    if (dto.printSpecsBySide !== undefined)
+      p.printSpecsBySide = dto.printSpecsBySide ?? null;
+    if (dto.starterTemplateBySide !== undefined)
+      p.starterTemplateBySide = dto.starterTemplateBySide ?? null;
+    if (dto.starterCanvasStateBySide !== undefined)
+      p.starterCanvasStateBySide = dto.starterCanvasStateBySide ?? null;
     if (dto.variants !== undefined) {
       p.variants = normalizeVariants(dto.variants);
     }
@@ -469,6 +506,14 @@ export class CatalogueService {
     if (dto.gstRate !== undefined) p.gstRate = dto.gstRate;
     if (dto.isActive !== undefined) p.isActive = dto.isActive;
     if (dto.tags !== undefined) p.tags = dto.tags;
+    if (dto.seoTitle !== undefined) {
+      p.seoTitle = dto.seoTitle?.trim() ? dto.seoTitle.trim() : null;
+    }
+    if (dto.seoDescription !== undefined) {
+      p.seoDescription = dto.seoDescription?.trim()
+        ? dto.seoDescription.trim()
+        : null;
+    }
     if (dto.highlights !== undefined) {
       p.highlights = normalizeHighlights(dto.highlights);
     }
