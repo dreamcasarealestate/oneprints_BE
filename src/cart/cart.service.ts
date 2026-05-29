@@ -37,13 +37,34 @@ export class CartService {
 
   // ---------- helpers ----------
 
+  /**
+   * Upper bound (inclusive) for any money value we ever try to
+   * persist. The DB columns are `numeric(12,2)` which physically tops
+   * out at 9 999 999 999.99 — we cap one full digit lower so we always
+   * have headroom for tax / coupon stacking before TypeORM emits the
+   * UPDATE. Anything bigger almost certainly means a bug upstream (or
+   * a malicious payload), so silently clamping is safer than letting
+   * the request 500 with "numeric field overflow".
+   */
+  private readonly MAX_MONEY = 9_999_999_999.99;
+
+  /** Safely coerce any value to a finite number; non-finite → 0. */
   private toNum(v: unknown): number {
     const n = Number(v ?? 0);
     return Number.isFinite(n) ? n : 0;
   }
 
+  /**
+   * Format a number as a `numeric(12,2)`-safe string. Rounds to 2 dp,
+   * floors NaN / Infinity to 0, and clamps the magnitude to
+   * `MAX_MONEY` so we never trigger Postgres "numeric field overflow".
+   */
   private money(n: number): string {
-    return (Math.round(n * 100) / 100).toFixed(2);
+    if (!Number.isFinite(n)) return '0.00';
+    const sign = n < 0 ? -1 : 1;
+    const magnitude = Math.min(Math.abs(n), this.MAX_MONEY);
+    const safe = sign * magnitude;
+    return (Math.round(safe * 100) / 100).toFixed(2);
   }
 
   private computeItemTotals(input: {
@@ -153,6 +174,96 @@ export class CartService {
   }
 
   /**
+   * Refresh each cart line's `unitPrice` / `mrp` from the live
+   * catalogue so admin price edits flow through to the cart in real
+   * time. We never mutate stored order rows — only the live cart —
+   * so historical orders/invoices keep the price the customer
+   * actually paid (matches the Vistaprint / Amazon snapshot model).
+   *
+   * Resolution rules:
+   *   - Archived / deleted products keep their cart snapshot intact
+   *     (no surprise zeroing-out when an admin pulls a SKU).
+   *   - When the product has variants we pick the matching one by
+   *     colour (`variant.key` / `colorName` / `colorHex`) and use its
+   *     `sellingPrice` / `mrp`. If no match, we fall back to the
+   *     product's `basePrice`.
+   *   - When prices change we recompute the line's discount/tax/total
+   *     fields so the running cart totals stay self-consistent.
+   */
+  private async refreshLivePrices(cart: Cart): Promise<boolean> {
+    const items = cart.items ?? [];
+    const productIds = Array.from(
+      new Set(
+        items
+          .map((line) => line.productId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    );
+    if (productIds.length === 0) return false;
+
+    const products = await this.productsRepo.find({
+      where: productIds.map((id) => ({ id })),
+    });
+    const productById = new Map<string, Product>(
+      products.map((p) => [p.id, p]),
+    );
+
+    let mutated = false;
+
+    for (const line of items) {
+      if (!line.productId) continue;
+      const product = productById.get(line.productId);
+      if (!product || product.isActive === false) continue;
+
+      const colourToken = (line.color ?? '').trim().toLowerCase();
+      const variant =
+        Array.isArray(product.variants) && product.variants.length > 0
+          ? product.variants.find((v) => {
+              const key = (v.key ?? '').trim().toLowerCase();
+              const name = (v.colorName ?? '').trim().toLowerCase();
+              const hex = (v.colorHex ?? '').trim().toLowerCase();
+              return (
+                colourToken !== '' &&
+                (key === colourToken || name === colourToken || hex === colourToken)
+              );
+            }) ?? product.variants[0]
+          : undefined;
+
+      const liveUnitPrice =
+        variant && typeof variant.sellingPrice === 'number'
+          ? variant.sellingPrice
+          : Number(product.basePrice);
+      const liveMrp =
+        variant && typeof variant.mrp === 'number'
+          ? variant.mrp
+          : Number(product.basePrice);
+
+      if (!Number.isFinite(liveUnitPrice)) continue;
+
+      const nextUnitPrice = this.money(liveUnitPrice);
+      const nextMrp = this.money(liveMrp);
+
+      if (line.unitPrice !== nextUnitPrice || line.mrp !== nextMrp) {
+        line.unitPrice = nextUnitPrice;
+        line.mrp = nextMrp;
+        Object.assign(
+          line,
+          this.computeItemTotals({
+            unitPrice: line.unitPrice,
+            quantity: line.quantity,
+            unitDiscount: line.unitDiscount,
+            taxPercent: line.taxPercent,
+          }),
+        );
+        await this.itemsRepo.save(line);
+        mutated = true;
+      }
+    }
+
+    return mutated;
+  }
+
+  /**
    * Reload the cart from the DB after a mutation and persist updated
    * totals. Returns the canonical, fully-relational view so the
    * controller can hand it straight back to the FE.
@@ -164,6 +275,7 @@ export class CartService {
       order: { items: { createdAt: 'ASC' } },
     });
     if (!cart) throw new NotFoundException('Cart disappeared mid-update');
+    await this.refreshLivePrices(cart);
     this.recomputeCartTotals(cart);
     await this.cartRepo.save(cart);
     return cart;

@@ -7,6 +7,12 @@ export const CANONICAL_CATEGORIES = [
   { name: 'Drinkware', slug: 'drinkware', sortOrder: 20 },
   { name: 'Bags', slug: 'bags', sortOrder: 30 },
   { name: 'Stationery', slug: 'stationery', sortOrder: 40 },
+  // Visiting / business cards. Slotted between Stationery and Office
+  // so it sits where customers naturally look for printed paper
+  // goods. Slug uses snake_case to match the rest of the canonical
+  // list (the FE registry normalises `_` ⇄ `-` for kebab-case
+  // lookups in `categoryColors`).
+  { name: 'Visiting cards', slug: 'visiting_cards', sortOrder: 45 },
   { name: 'Office', slug: 'office', sortOrder: 50 },
   { name: 'Awards', slug: 'awards', sortOrder: 60 },
   { name: 'Promo & events', slug: 'promo', sortOrder: 70 },
