@@ -57,10 +57,27 @@ export class CartItem {
   @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
   mrp: string | null;
 
-  @Column({ type: 'numeric', precision: 6, scale: 2, default: 0 })
+  /**
+   * Per-unit discount amount in cart currency. Widened from
+   * `numeric(6,2)` (max 9 999.99) to match the rest of the money
+   * columns — historical rows hit "numeric field overflow" when an
+   * admin price refresh re-computed `discountAmount` for big-ticket
+   * lines (`unitDiscount * quantity`). Storing as `numeric(12,2)`
+   * keeps line maths safe up to ~10 billion rupees per row, which is
+   * effectively unbounded for retail orders while still being smaller
+   * than Postgres' default `numeric` so indices stay cheap.
+   */
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0 })
   unitDiscount: string;
 
-  @Column({ type: 'numeric', precision: 6, scale: 2, default: 0 })
+  /**
+   * GST / tax percent applied to this line. Widened together with
+   * `unitDiscount` for consistency — the old `numeric(6,2)` was
+   * already enough for any realistic %, but matching column shapes
+   * avoids implicit coercion gotchas when these values feed
+   * `taxAmount`.
+   */
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0 })
   taxPercent: string;
 
   @Column({ type: 'numeric', precision: 12, scale: 2, default: 0 })
