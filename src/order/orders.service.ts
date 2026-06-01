@@ -241,6 +241,11 @@ export class OrdersService {
 
     const saved = await this.ordersRepo.save(order);
 
+    // Track which templates this order touched so we can bump their
+    // `usageCount` once the order persists. Single increment per
+    // (orderId, templateId) — re-ordering the same template across
+    // multiple lines still counts as one "use" against the template.
+    const touchedTemplateIds = new Set<string>();
     for (const row of items) {
       const line = this.itemsRepo.create({
         orderId: saved.id,
@@ -253,11 +258,34 @@ export class OrdersService {
         productImage: row.productImage ?? null,
         customizedImage: row.customizedImage ?? null,
         designData: row.designData ?? null,
+        templateId: row.templateId ?? null,
         measurements: row.measurements ?? null,
         customizationData: row.customizationData ?? null,
         variantSnapshot: row.variantSnapshot ?? null,
       });
       await this.itemsRepo.save(line);
+      if (row.templateId) touchedTemplateIds.add(row.templateId);
+    }
+
+    // Bump template usage counters. Done after order persistence so
+    // a downstream failure (notification, email, …) can't double-
+    // count. Errors are swallowed: usageCount is a soft analytic, it
+    // must never block the actual order creation.
+    if (touchedTemplateIds.size > 0) {
+      void (async () => {
+        try {
+          for (const tplId of touchedTemplateIds) {
+            await this.ordersRepo.manager.increment(
+              'design_templates',
+              { id: tplId },
+              'usageCount',
+              1,
+            );
+          }
+        } catch {
+          /* usage count is best-effort */
+        }
+      })();
     }
 
     await this.appendLog(saved.id, null, 'order_placed', userId, 'Order created');
@@ -303,7 +331,11 @@ export class OrdersService {
   async findMine(userId: string) {
     const orders = await this.ordersRepo.find({
       where: { customerId: userId },
-      relations: ['items', 'branch'],
+      // Eager-load each line's source DesignTemplate so the portal
+      // "my orders" detail page can render a "Template: …" chip
+      // without an extra fetch. Templates are tiny and the join is
+      // cheap (most orders carry ≤ 5 lines).
+      relations: ['items', 'items.template', 'branch'],
       order: { createdAt: 'DESC' },
     });
     return this.backfillOrderNumbers(orders);
@@ -313,7 +345,7 @@ export class OrdersService {
     const normalizedKind = normalizeKnownUserKind(actor.userKind);
     if (normalizedKind === UserKind.SUPER_ADMIN || normalizedKind === UserKind.OPS_HEAD) {
       const orders = await this.ordersRepo.find({
-        relations: ['user', 'items', 'branch'],
+        relations: ['user', 'items', 'items.template', 'branch'],
         order: { createdAt: 'DESC' },
       });
       return this.backfillOrderNumbers(orders);
@@ -325,7 +357,7 @@ export class OrdersService {
     ) {
       const orders = await this.ordersRepo.find({
         where: { branchId: actor.branchId },
-        relations: ['user', 'items', 'branch'],
+        relations: ['user', 'items', 'items.template', 'branch'],
         order: { createdAt: 'DESC' },
       });
       return this.backfillOrderNumbers(orders);
@@ -336,7 +368,7 @@ export class OrdersService {
     }
 
     const orders = await this.ordersRepo.find({
-      relations: ['user', 'items', 'branch'],
+      relations: ['user', 'items', 'items.template', 'branch'],
       order: { createdAt: 'DESC' },
     });
     return this.backfillOrderNumbers(orders);
@@ -349,7 +381,13 @@ export class OrdersService {
   ) {
     const order = await this.ordersRepo.findOne({
       where: { id },
-      relations: ['items', 'branch', 'statusLogs', 'user'],
+      relations: [
+        'items',
+        'items.template',
+        'branch',
+        'statusLogs',
+        'user',
+      ],
     });
     if (!order) throw new NotFoundException('Order not found');
     if (!order.orderNumber) {

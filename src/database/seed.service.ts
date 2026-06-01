@@ -36,7 +36,16 @@ export class SeedService implements OnModuleInit {
     // Template taxonomy + back-link any legacy DesignTemplate rows that
     // only have a `categorySlug` (from the pre-FK schema) to the new
     // TemplateCategory rows. Both calls are idempotent.
+    //
+    // Order matters: hand-curated design kinds (flyer, banner, …) seed
+    // first via `ensureDefaults()`, then `syncFromProductCategories()`
+    // mirrors every catalogue category (visiting cards, labels,
+    // stickers, packaging, drinkware …) into the template taxonomy so
+    // admins can author VistaPrint-style templates for every product
+    // category — and customers see them in the storefront templates
+    // rail / studio sidebar.
     await this.templateCategories.ensureDefaults();
+    await this.templateCategories.syncFromProductCategories();
     await this.templates.backfillCategoryIds();
   }
 }

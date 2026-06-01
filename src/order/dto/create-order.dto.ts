@@ -126,6 +126,14 @@ export class OrderLineItemInputDto {
 
   @ApiPropertyOptional({
     description:
+      'UUID of the DesignTemplate the customer applied. Carried straight from the cart line.',
+  })
+  @IsOptional()
+  @IsUUID()
+  templateId?: string;
+
+  @ApiPropertyOptional({
+    description:
       'Snapshot of the product variant (per-colour) the shopper saw at order time: key, colorName, colorHex, mrp, sellingPrice, discountPercent, stockQty.',
   })
   @IsOptional()

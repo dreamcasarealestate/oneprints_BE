@@ -85,6 +85,14 @@ export class AddToCartDto {
   designId?: string;
 
   @ApiPropertyOptional({
+    description:
+      "UUID of the DesignTemplate the customer applied in the studio (when one was used). Persisted on the cart line so admin / portal order pages can show a 'Template: …' chip and analytics can attribute orders back to their source template.",
+  })
+  @IsOptional()
+  @IsUUID()
+  templateId?: string;
+
+  @ApiPropertyOptional({
     description: 'Storefront product image for the selected colour.',
   })
   @IsOptional()

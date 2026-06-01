@@ -60,6 +60,32 @@ export class TemplateCategory {
   @Column('jsonb', { default: {} })
   printSpec: Record<string, unknown>;
 
+  /**
+   * Optional **soft link** to a {@link ProductCategory} slug
+   * (e.g. `visiting_cards`, `labels`, `stickers`, `packaging`,
+   * `apparel`).
+   *
+   * The two taxonomies use different slug conventions (catalogue
+   * uses snake_case, templates kebab-case) so we can't compare
+   * slugs directly. This column lets the template category say
+   * "I represent THIS product category" — used by:
+   *
+   *   • the admin template authoring studio's product-binder
+   *     filter (narrow the picker to products in the matched
+   *     product category, instead of relying on accidental slug
+   *     equality which broke for `visiting_cards` ↔ `business-card`),
+   *   • the customer's `EditorTemplatesPanel` / PDP rail when
+   *     ranking templates for a product (find the matching
+   *     template category for the product's slug),
+   *   • analytics / reporting joins.
+   *
+   * Nullable for legacy design-kind rows (flyer, banner, brochure,
+   * poster, social) that don't map onto a single product category.
+   */
+  @Index()
+  @Column({ type: 'text', nullable: true })
+  productCategorySlug: string | null;
+
   @Column({ default: 0 })
   sortOrder: number;
 

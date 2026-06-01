@@ -6,6 +6,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
 } from 'class-validator';
 
@@ -64,6 +65,14 @@ export class UpdateCartItemDto {
   @IsOptional()
   @IsString()
   designId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'UUID of the DesignTemplate applied in the studio. Pass `null` to clear the link when the customer abandons the template.',
+  })
+  @IsOptional()
+  @IsUUID()
+  templateId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

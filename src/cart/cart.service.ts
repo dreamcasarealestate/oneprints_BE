@@ -148,7 +148,10 @@ export class CartService {
   private async loadCartOrCreate(userId: string): Promise<Cart> {
     let cart = await this.cartRepo.findOne({
       where: { userId },
-      relations: ['items'],
+      // Eager-load the chosen template per line so the cart UI can
+      // render "Template: Wine Red" chips without a second round-trip.
+      // Cheap join — most carts hold 1-5 lines and TypeORM batches.
+      relations: ['items', 'items.template'],
       order: { items: { createdAt: 'ASC' } },
     });
     if (cart) return cart;
@@ -271,7 +274,7 @@ export class CartService {
   private async refreshAndSave(cartId: string): Promise<Cart> {
     const cart = await this.cartRepo.findOne({
       where: { id: cartId },
-      relations: ['items'],
+      relations: ['items', 'items.template'],
       order: { items: { createdAt: 'ASC' } },
     });
     if (!cart) throw new NotFoundException('Cart disappeared mid-update');
@@ -337,6 +340,7 @@ export class CartService {
         size: dto.size ?? null,
         color: dto.color ?? null,
         designId: dto.designId ?? null,
+        templateId: dto.templateId ?? null,
         productImage: dto.productImage ?? null,
         blankImage: dto.blankImage ?? null,
         designThumbnail: dto.designThumbnail ?? null,
@@ -396,6 +400,7 @@ export class CartService {
     if (dto.size !== undefined) item.size = dto.size || null;
     if (dto.color !== undefined) item.color = dto.color || null;
     if (dto.designId !== undefined) item.designId = dto.designId || null;
+    if (dto.templateId !== undefined) item.templateId = dto.templateId || null;
     if (dto.productImage !== undefined) {
       item.productImage = dto.productImage || null;
     }
@@ -496,6 +501,7 @@ export class CartService {
         size: i.size ?? null,
         color: i.color ?? null,
         designId: i.designId ?? null,
+        templateId: i.templateId ?? null,
         productImage: i.productImage ?? null,
         blankImage: i.blankImage ?? null,
         designThumbnail: i.designThumbnail ?? null,
@@ -557,6 +563,7 @@ export class CartService {
     size?: string | null;
     color?: string | null;
     designId?: string | null;
+    templateId?: string | null;
     customFieldValues?: Record<string, string> | null;
     sideThumbnails?: Record<string, string | null> | null;
     printSides?: string[] | null;
@@ -568,12 +575,17 @@ export class CartService {
           .join('|')
       : '';
     const sides = input.printSides ? [...input.printSides].sort().join(',') : '';
+    // Templates participate in the signature so two cart lines built
+    // from different templates (same product / size / colour) stay
+    // separate rows. Without this they'd silently coalesce and the
+    // shopper would see a quantity bump on the "wrong" line.
     return [
       input.productId ?? '-',
       input.variantId ?? '-',
       input.size ?? '-',
       input.color ?? '-',
       input.designId ?? '-',
+      input.templateId ?? '-',
       cfv,
       sides,
     ].join('::');

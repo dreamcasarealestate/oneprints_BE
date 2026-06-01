@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { TemplateCategory } from './template-category.entity';
 import { CreateTemplateCategoryDto } from './dto/create-template-category.dto';
 import { UpdateTemplateCategoryDto } from './dto/update-template-category.dto';
+import { PRODUCT_CATEGORY_TEMPLATE_PRESETS } from './product-category-template-presets';
 
 /**
  * Canonical bootstrap categories. Seeded on module init so admins always
@@ -147,6 +148,7 @@ export class TemplateCategoriesService {
       defaultBleedPx: dto.defaultBleedPx ?? 0,
       defaultSides: dto.defaultSides ?? [{ id: 'front', label: 'Front' }],
       printSpec: dto.printSpec ?? {},
+      productCategorySlug: dto.productCategorySlug ?? null,
       sortOrder: dto.sortOrder ?? 0,
       isActive: dto.isActive ?? true,
     });
@@ -183,6 +185,9 @@ export class TemplateCategoriesService {
       }),
       ...(dto.defaultSides !== undefined && { defaultSides: dto.defaultSides }),
       ...(dto.printSpec !== undefined && { printSpec: dto.printSpec }),
+      ...(dto.productCategorySlug !== undefined && {
+        productCategorySlug: dto.productCategorySlug || null,
+      }),
       ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
     });
@@ -215,6 +220,80 @@ export class TemplateCategoriesService {
           defaultSides: seed.defaultSides ?? [{ id: 'front', label: 'Front' }],
           printSpec: {},
           sortOrder: i,
+          isActive: true,
+        }),
+      );
+    }
+  }
+
+  /**
+   * VistaPrint-parity sync: ensure every canonical {@link
+   * ProductCategory} has a matching `TemplateCategory` so admins can
+   * author templates for visiting cards / labels / stickers /
+   * packaging / drinkware / etc. and customers see them in the
+   * storefront templates rail.
+   *
+   * Strategy
+   * ────────
+   * For each preset in {@link PRODUCT_CATEGORY_TEMPLATE_PRESETS}:
+   *   1. If a row already exists by `productCategorySlug` link →
+   *      leave it alone (admin may have renamed / resized it).
+   *   2. Otherwise look for a row whose `slug` matches the preset's
+   *      kebab-case slug. If found, **backfill** the link (one-time)
+   *      so the studio's product-binder can match it, but don't
+   *      touch any other fields.
+   *   3. If neither exists, create a fresh row with the preset's
+   *      canvas defaults + the back-link.
+   *
+   * The two-tier check protects:
+   *   - older deploys that have a manually-created `apparel` /
+   *     `stationery` row without the link column populated,
+   *   - the seeded `business-card` row (the customer-facing
+   *     "Business Cards" design-kind) which we deliberately don't
+   *     collide with `visiting-cards` (the product-bound row).
+   *
+   * Idempotent — safe to call on every boot.
+   */
+  async syncFromProductCategories(): Promise<void> {
+    const presets = PRODUCT_CATEGORY_TEMPLATE_PRESETS;
+    // The product canonical list is short (~14 entries); we run
+    // sequentially to keep boot-time logs deterministic and avoid
+    // racing on the unique slug index.
+    for (let i = 0; i < presets.length; i++) {
+      const preset = presets[i];
+
+      const linked = await this.repo.findOneBy({
+        productCategorySlug: preset.productCategorySlug,
+      });
+      if (linked) continue;
+
+      const sameSlug = await this.repo.findOneBy({ slug: preset.slug });
+      if (sameSlug) {
+        if (!sameSlug.productCategorySlug) {
+          sameSlug.productCategorySlug = preset.productCategorySlug;
+          await this.repo.save(sameSlug);
+        }
+        continue;
+      }
+
+      await this.repo.save(
+        this.repo.create({
+          slug: preset.slug,
+          name: preset.name,
+          description: preset.description,
+          iconUrl: null,
+          coverUrl: null,
+          defaultCanvasWidth: preset.defaultCanvasWidth,
+          defaultCanvasHeight: preset.defaultCanvasHeight,
+          defaultBleedPx: preset.defaultBleedPx,
+          defaultSides: preset.defaultSides,
+          printSpec: {},
+          productCategorySlug: preset.productCategorySlug,
+          // Push synced rows after the hand-curated design kinds
+          // (flyer/banner/brochure/poster/social = sortOrder 0-7) so
+          // the admin sees curated kinds first, then merchandise
+          // categories.
+          sortOrder: 100 + i,
           isActive: true,
         }),
       );

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, In, Repository } from 'typeorm';
+import { ArrayOverlap, ILike, In, Repository } from 'typeorm';
 import {
   DesignTemplate,
   TEMPLATE_STATUSES,
@@ -24,6 +24,26 @@ export type TemplateListOpts = {
   statuses?: TemplateStatus[];
   /** When true, also returns rows where `isPublic=false` (admin only). */
   includePrivate?: boolean;
+  /**
+   * Optional product binding. When set:
+   *   - Templates authored for THIS product (where `productId` matches)
+   *     are returned first
+   *   - Then templates with no product binding (`productId IS NULL`)
+   *     in the same category are appended to top up the page
+   *
+   * This mirrors VistaPrint's "Templates for Standard Visiting Cards"
+   * flow where product-specific artwork wins, with category-wide
+   * fallbacks filling the rail when there isn't enough.
+   */
+  productId?: string;
+  /**
+   * Optional tag filter — array of strings OR-matched against the
+   * template's `tags` column. The PDP / studio uses this to scope
+   * templates to the customer's currently-picked variant (e.g. the
+   * selected size, paper stock, orientation). Admins tag a template
+   * with the option labels they want it to appear for.
+   */
+  tags?: string[];
   limit?: number;
   offset?: number;
 };
@@ -43,32 +63,86 @@ export class TemplatesService {
    * filter for management UIs.
    */
   async list(opts: TemplateListOpts) {
-    const where: Record<string, unknown> = {};
+    const baseWhere: Record<string, unknown> = {};
 
-    if (!opts.includePrivate) where.isPublic = true;
+    if (!opts.includePrivate) baseWhere.isPublic = true;
     if (opts.statuses?.length) {
-      where.status = In(opts.statuses);
+      baseWhere.status = In(opts.statuses);
     } else if (opts.status) {
-      where.status = opts.status;
+      baseWhere.status = opts.status;
     } else if (!opts.includePrivate) {
-      where.status = 'approved';
+      baseWhere.status = 'approved';
     }
-    if (opts.featured !== undefined) where.featured = opts.featured;
-    if (opts.categoryId) where.categoryId = opts.categoryId;
-    else if (opts.categorySlug) where.categorySlug = opts.categorySlug;
-    if (opts.search) where.title = ILike(`%${opts.search}%`);
+    if (opts.featured !== undefined) baseWhere.featured = opts.featured;
+    if (opts.categoryId) baseWhere.categoryId = opts.categoryId;
+    else if (opts.categorySlug) baseWhere.categorySlug = opts.categorySlug;
+    if (opts.search) baseWhere.title = ILike(`%${opts.search}%`);
+    // Tag filter — OR-matched against the template's `tags[]` column
+    // via Postgres' `&&` array-overlap operator. Lower-case each tag
+    // so the comparison is case-insensitive in the common case
+    // (admins type "Standard", customers see "standard", etc.).
+    const tagPool = (opts.tags ?? [])
+      .map((t) => (t ?? '').toString().trim().toLowerCase())
+      .filter((t) => t.length > 0);
+    if (tagPool.length > 0) {
+      baseWhere.tags = ArrayOverlap(tagPool);
+    }
+
+    const take = opts.limit ?? 48;
+    const skip = opts.offset ?? 0;
+    const order = {
+      // Featured templates always rise to the top of any listing — this
+      // is what powers the "Featured" carousel on the templates page.
+      featured: 'DESC' as const,
+      sortOrder: 'ASC' as const,
+      createdAt: 'DESC' as const,
+    };
+
+    // When the caller scopes the request to a specific product, run a
+    // two-tier query so product-bound templates win the early slots
+    // while category-wide fallbacks still fill the page. We dedup by
+    // id so a template that matches both tiers only shows up once.
+    //
+    // The queries run sequentially (not Promise.all) so the second
+    // call can size its `take` from what the first returned. Cost
+    // is a single extra round-trip; payoff is no over-fetch on
+    // products that already have a full curated rail.
+    if (opts.productId) {
+      const boundToProduct = await this.repo.find({
+        where: { ...baseWhere, productId: opts.productId },
+        order,
+        take,
+        skip,
+      });
+      const topUpCount = Math.max(0, take - boundToProduct.length);
+      // Top up with templates that don't bind to any product (the
+      // "library" templates) so a brand-new product with no curated
+      // artwork still gets a useful rail. We skip pagination here —
+      // it's tied to the bound query.
+      const unbound =
+        topUpCount > 0
+          ? await this.repo.find({
+              where: { ...baseWhere, productId: undefined },
+              order,
+              take: topUpCount,
+            })
+          : [];
+      const seen = new Set<string>();
+      const merged: DesignTemplate[] = [];
+      for (const t of [...boundToProduct, ...unbound]) {
+        if (seen.has(t.id)) continue;
+        seen.add(t.id);
+        merged.push(t);
+        if (merged.length >= take) break;
+      }
+      return merged;
+    }
 
     return this.repo.find({
-      where,
-      order: {
-        // Featured templates always rise to the top of any listing — this
-        // is what powers the "Featured" carousel on the templates page.
-        featured: 'DESC',
-        sortOrder: 'ASC',
-        createdAt: 'DESC',
-      },
-      take: opts.limit ?? 48,
-      skip: opts.offset ?? 0,
+      where: baseWhere,
+      order,
+      take,
+      skip,
     });
   }
 
@@ -144,6 +218,11 @@ export class TemplatesService {
       tags: dto.tags ?? [],
       thumbnailUrl: dto.thumbnailUrl ?? null,
       canvasState: dto.canvasState,
+      // VistaPrint-style admin-authored form + palette. Default to
+      // empty arrays so legacy templates (banners, flyers, …) that
+      // never had these surfaces still parse cleanly.
+      editableFields: dto.editableFields ?? [],
+      colorVariants: dto.colorVariants ?? [],
       isPublic: dto.isPublic ?? true,
       featured: dto.featured ?? false,
       status,
@@ -178,6 +257,15 @@ export class TemplatesService {
       ...(dto.tags !== undefined && { tags: dto.tags }),
       ...(dto.thumbnailUrl !== undefined && { thumbnailUrl: dto.thumbnailUrl }),
       ...(dto.canvasState !== undefined && { canvasState: dto.canvasState }),
+      // Form schema + palette PATCH semantics: undefined means
+      // "leave as is", null/empty arrays explicitly clear them
+      // (admin re-authored a template that no longer needs a form).
+      ...(dto.editableFields !== undefined && {
+        editableFields: dto.editableFields ?? [],
+      }),
+      ...(dto.colorVariants !== undefined && {
+        colorVariants: dto.colorVariants ?? [],
+      }),
       ...(dto.isPublic !== undefined && { isPublic: dto.isPublic }),
       ...(dto.featured !== undefined && { featured: dto.featured }),
       ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
