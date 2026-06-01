@@ -71,6 +71,16 @@ export class UpdateTemplateCategoryDto {
   @IsObject()
   printSpec?: Record<string, unknown>;
 
+  /**
+   * Optional snake_case slug of the {@link ProductCategory} this
+   * template category represents. Pass an empty string to clear
+   * the link — the service treats falsy values as "set to null".
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  productCategorySlug?: string | null;
+
   @IsOptional()
   @IsInt()
   sortOrder?: number;

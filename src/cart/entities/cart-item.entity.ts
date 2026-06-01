@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -9,6 +10,7 @@ import {
 } from 'typeorm';
 import { Cart } from './cart.entity';
 import { Product } from '../../catalogue/product.entity';
+import { DesignTemplate } from '../../templates/template.entity';
 
 /**
  * A single line in the customer's cart. Mirrors the rich order-item
@@ -101,6 +103,29 @@ export class CartItem {
   /** Reference to the saved Design row so "Edit" in the cart can re-open the canvas. */
   @Column({ type: 'uuid', nullable: true })
   designId: string | null;
+
+  /**
+   * Optional reference to the {@link DesignTemplate} the customer
+   * picked when authoring this design. Persisted on the cart line so:
+   *   • the cart UI can show "Template: Modern Slate" chips,
+   *   • the same id flows downstream into `OrderItem.templateId`,
+   *   • analytics can attribute orders back to their source template
+   *     (e.g. usage-count, top-performing template reports),
+   *   • a returning shopper can re-open the studio with the original
+   *     template pre-applied if the design row was lost.
+   *
+   * Soft FK — `onDelete: 'SET NULL'` so deleting a template never
+   * cascades into the cart. The cart line stays readable (it still
+   * has the customer's saved design thumbnail / state); we just drop
+   * the dangling link.
+   */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  templateId: string | null;
+
+  @ManyToOne(() => DesignTemplate, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'templateId' })
+  template: DesignTemplate | null;
 
   /** Storefront product image URL for the selected colour. */
   @Column('text', { nullable: true })

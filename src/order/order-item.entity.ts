@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -9,6 +10,7 @@ import {
 } from 'typeorm';
 import { Order } from './order.entity';
 import { Product } from '../catalogue/product.entity';
+import { DesignTemplate } from '../templates/template.entity';
 
 @Entity('order_items')
 export class OrderItem {
@@ -54,6 +56,29 @@ export class OrderItem {
 
   @Column('jsonb', { nullable: true })
   designData: Record<string, unknown> | null;
+
+  /**
+   * Optional reference to the {@link DesignTemplate} the customer
+   * picked in the studio. Carried straight from the cart line so:
+   *   • Admin / portal order pages and invoices can render the
+   *     template name + thumbnail next to the line ("Template: …").
+   *   • Reports can attribute orders to their source template
+   *     (counts, recency, conversion analytics).
+   *   • Reordering re-opens the studio with the same template
+   *     pre-applied if the customer's saved design row is gone.
+   *
+   * `onDelete: 'SET NULL'` so an admin can prune a stale template
+   * without breaking historical orders — the line keeps its frozen
+   * `customizedImage` / `customizationData`, only the live link
+   * drops.
+   */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  templateId: string | null;
+
+  @ManyToOne(() => DesignTemplate, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'templateId' })
+  template: DesignTemplate | null;
 
   @Column('jsonb', { nullable: true })
   measurements: Record<string, unknown> | null;

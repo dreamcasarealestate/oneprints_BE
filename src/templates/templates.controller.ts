@@ -39,6 +39,8 @@ export class TemplatesController {
   list(
     @Query('categorySlug') categorySlug?: string,
     @Query('categoryId') categoryId?: string,
+    @Query('productId') productId?: string,
+    @Query('tags') tags?: string,
     @Query('search') search?: string,
     @Query('featured') featured?: string,
     @Query('limit') limit?: string,
@@ -47,6 +49,11 @@ export class TemplatesController {
     return this.svc.list({
       categorySlug,
       categoryId,
+      productId: productId?.trim() || undefined,
+      tags: tags
+        ?.split(',')
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0),
       search,
       featured:
         featured === 'true' ? true : featured === 'false' ? false : undefined,
