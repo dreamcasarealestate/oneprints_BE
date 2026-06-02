@@ -48,6 +48,29 @@ export class DesignTemplate {
   @Column({ type: 'uuid', nullable: true })
   productId: string | null;
 
+  /**
+   * Optional admin-set **"starting from" price** for this template
+   * (in the storefront's base currency, e.g. INR). When present we
+   * surface it on every template card as the "From ₹X" pill —
+   * matches VistaPrint's behaviour where every template tile shows
+   * a price you can compare at a glance.
+   *
+   * Resolution order (FE):
+   *   1. `priceFromOverride` — when admin set an explicit value
+   *      (e.g. promotional, bundle, premium template).
+   *   2. Bound product's `basePrice` — when no override but the
+   *      template binds to a product (BE joins it via the
+   *      `priceFrom` computed field on the response).
+   *   3. Hide the pill — library templates that don't bind to a
+   *      product and have no override (rare; pricing is
+   *      resolved on the detail-page product picker instead).
+   *
+   * Stored as `numeric` to preserve money precision; FE coerces
+   * to a `number` for rendering.
+   */
+  @Column({ type: 'numeric', nullable: true })
+  priceFromOverride: string | null;
+
   /** Override canvas width (px). Falls back to category default if null. */
   @Column({ type: 'int', nullable: true })
   width: number | null;
@@ -159,6 +182,50 @@ export class DesignTemplate {
     palette?: Record<string, string> | null;
     /** Mark exactly one variant as the on-load default. */
     isDefault?: boolean | null;
+    /**
+     * Optional **per-variant preview image** (S3 / public URL).
+     * When set, storefront cards (PDP rail, browse grid, studio
+     * templates panel) swap the card thumbnail to this image when
+     * the customer hovers / clicks the variant's color dot —
+     * matches VistaPrint's behaviour where each colour shows a
+     * different rendered preview rather than a programmatic
+     * recolor of the same image. Omit to fall back to the
+     * template's main `thumbnailUrl`.
+     */
+    thumbnailUrl?: string | null;
+    /**
+     * Optional **per-variant curated canvas state**. When the
+     * admin authored a hand-tuned canvas for this colour (e.g.
+     * the wine version uses different ornaments than the navy
+     * version), the studio's "Template color" panel loads this
+     * directly instead of running the heuristic recolor on the
+     * default `canvasState`. Same shape as the parent
+     * `canvasState` — flat Fabric scene, `{ state }` wrapper, or
+     * multi-side `{ sideStates }` wrapper are all accepted by the
+     * studio loader.
+     */
+    canvasState?: Record<string, unknown> | null;
+    /**
+     * Optional **price delta** applied on top of the bound
+     * product's unit price when the customer picks this colour
+     * variant — VistaPrint's "Premium foil +₹10" pattern.
+     * Positive numbers add, negatives discount. Zero / null are
+     * treated identically and skip the chip in the cart.
+     *
+     * The studio passes this through `meta.templateColorVariantPriceDelta`
+     * onto the cart line so cart, order, invoice and reorder all
+     * apply the same delta without an extra fetch.
+     */
+    priceDelta?: number | null;
+    /**
+     * Optional **side** this variant applies to (e.g. `"front"` /
+     * `"back"`). When present the customer studio only surfaces
+     * the variant in the "Template color" picker while the
+     * customer is editing that side — matches VistaPrint's
+     * front/back-independent colour rails. Leave `null` for a
+     * universal variant that applies to every side.
+     */
+    side?: string | null;
   }>;
 
   /**
