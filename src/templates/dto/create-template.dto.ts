@@ -6,6 +6,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -101,6 +102,48 @@ export class TemplateColorVariantDto {
   @IsOptional()
   @IsBoolean()
   isDefault?: boolean | null;
+
+  /**
+   * Optional per-variant preview image (S3 / public URL). Storefront
+   * cards swap to this when the customer hovers / clicks the
+   * variant's colour dot. Falls back to the template's main
+   * `thumbnailUrl` when not set.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  thumbnailUrl?: string | null;
+
+  /**
+   * Optional per-variant curated canvas state. When the admin
+   * authored a hand-tuned canvas for this colour the studio loads
+   * this directly instead of running the heuristic recolor on the
+   * template's default `canvasState`.
+   */
+  @IsOptional()
+  @IsObject()
+  canvasState?: Record<string, unknown> | null;
+
+  /**
+   * Optional price delta applied on top of the bound product's
+   * unit price when the customer picks this colour variant
+   * (VistaPrint's "Premium foil +₹10" pattern). Positive numbers
+   * add, negatives discount.
+   */
+  @IsOptional()
+  @IsNumber()
+  priceDelta?: number | null;
+
+  /**
+   * Optional canonical side id this variant scopes to (e.g.
+   * `"front"`). Empty / null means the variant applies to every
+   * side (legacy default). Used by the studio to filter the
+   * "Template color" picker per active side.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  side?: string | null;
 }
 
 export class CreateTemplateDto {
@@ -139,6 +182,17 @@ export class CreateTemplateDto {
   @IsOptional()
   @IsString()
   thumbnailUrl?: string;
+
+  /**
+   * Optional admin-set "starting from" price for this template,
+   * surfaced on storefront cards as the "From ₹X" pill. When
+   * unset the BE falls back to the bound product's `basePrice`
+   * for the response's `priceFrom` computed field.
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceFromOverride?: number | null;
 
   @IsObject()
   canvasState: Record<string, unknown>;

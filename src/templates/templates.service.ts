@@ -12,6 +12,18 @@ import {
 } from './template.entity';
 import { TemplateCategory } from './template-category.entity';
 import { CreateTemplateDto } from './dto/create-template.dto';
+import { Product } from '../catalogue/product.entity';
+
+/**
+ * Wire response shape: the entity row with `priceFrom` computed
+ * from `priceFromOverride` falling back to the bound product's
+ * `basePrice`. We expose it as a sibling field (instead of
+ * mutating `priceFromOverride`) so the FE always knows whether
+ * the value came from an admin-set override.
+ */
+export type TemplateResponse = DesignTemplate & {
+  priceFrom: number | null;
+};
 
 export type TemplateListOpts = {
   categorySlug?: string;
@@ -55,7 +67,78 @@ export class TemplatesService {
     private readonly repo: Repository<DesignTemplate>,
     @InjectRepository(TemplateCategory)
     private readonly categories: Repository<TemplateCategory>,
+    @InjectRepository(Product)
+    private readonly products: Repository<Product>,
   ) {}
+
+  /**
+   * Coerce the DB's `numeric` column into a JS `number` for the
+   * response — TypeORM returns numerics as strings to preserve
+   * precision but the FE needs a real number for comparison /
+   * formatting.
+   */
+  private parseMoney(raw: unknown): number | null {
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+
+  /**
+   * Attach the computed `priceFrom` field to a single template.
+   * Order: admin override → bound product `basePrice` → null.
+   */
+  private async attachPriceFrom(
+    tpl: DesignTemplate,
+  ): Promise<TemplateResponse> {
+    const override = this.parseMoney(tpl.priceFromOverride);
+    if (override !== null) {
+      return { ...tpl, priceFrom: override };
+    }
+    if (tpl.productId) {
+      const product = await this.products.findOne({
+        where: { id: tpl.productId },
+        select: ['id', 'basePrice'] as (keyof Product)[],
+      });
+      const basePrice = this.parseMoney(product?.basePrice);
+      return { ...tpl, priceFrom: basePrice };
+    }
+    return { ...tpl, priceFrom: null };
+  }
+
+  /**
+   * Bulk variant of {@link attachPriceFrom} — single SELECT for
+   * every productId on the page so the list endpoint stays
+   * O(1) DB calls regardless of result size.
+   */
+  private async attachPriceFromBulk(
+    rows: DesignTemplate[],
+  ): Promise<TemplateResponse[]> {
+    const productIds = Array.from(
+      new Set(rows.map((r) => r.productId).filter((id): id is string => !!id)),
+    );
+    const productPriceById = new Map<string, number | null>();
+    if (productIds.length > 0) {
+      const products = await this.products.find({
+        where: { id: In(productIds) },
+        select: ['id', 'basePrice'] as (keyof Product)[],
+      });
+      for (const p of products) {
+        productPriceById.set(p.id, this.parseMoney(p.basePrice));
+      }
+    }
+    return rows.map((tpl) => {
+      const override = this.parseMoney(tpl.priceFromOverride);
+      if (override !== null) return { ...tpl, priceFrom: override };
+      const productPrice = tpl.productId
+        ? productPriceById.get(tpl.productId) ?? null
+        : null;
+      return { ...tpl, priceFrom: productPrice };
+    });
+  }
 
   /**
    * Storefront listing — by default scoped to `approved + isPublic`.
@@ -135,31 +218,33 @@ export class TemplatesService {
         merged.push(t);
         if (merged.length >= take) break;
       }
-      return merged;
+      return this.attachPriceFromBulk(merged);
     }
 
-    return this.repo.find({
+    const rows = await this.repo.find({
       where: baseWhere,
       order,
       take,
       skip,
     });
+    return this.attachPriceFromBulk(rows);
   }
 
   /** Admin: every row, any status, any visibility. */
-  listAll() {
-    return this.repo.find({
+  async listAll(): Promise<TemplateResponse[]> {
+    const rows = await this.repo.find({
       order: { createdAt: 'DESC' },
     });
+    return this.attachPriceFromBulk(rows);
   }
 
-  async getOne(id: string): Promise<DesignTemplate> {
+  async getOne(id: string): Promise<TemplateResponse> {
     const tpl = await this.repo.findOneBy({ id });
     if (!tpl) throw new NotFoundException('Template not found');
     // Usage count drives "trending" / sortable popularity later. Increment
     // is best-effort and isolated from the read response.
     void this.repo.increment({ id }, 'usageCount', 1).catch(() => undefined);
-    return tpl;
+    return this.attachPriceFrom(tpl);
   }
 
   /**
@@ -195,7 +280,7 @@ export class TemplatesService {
   async create(
     dto: CreateTemplateDto,
     actor: { id: string },
-  ): Promise<DesignTemplate> {
+  ): Promise<TemplateResponse> {
     const cat = await this.resolveCategory({
       categoryId: dto.categoryId,
       categorySlug: dto.categorySlug,
@@ -215,6 +300,14 @@ export class TemplatesService {
       productId: dto.productId ?? null,
       width: dto.width ?? null,
       height: dto.height ?? null,
+      // Persist the admin's "From ₹X" override as a string so
+      // TypeORM round-trips numeric precision correctly. `null`
+      // means "fall back to bound product's basePrice" on the
+      // response's `priceFrom` field.
+      priceFromOverride:
+        dto.priceFromOverride !== undefined && dto.priceFromOverride !== null
+          ? String(dto.priceFromOverride)
+          : null,
       tags: dto.tags ?? [],
       thumbnailUrl: dto.thumbnailUrl ?? null,
       canvasState: dto.canvasState,
@@ -233,13 +326,14 @@ export class TemplatesService {
       approvedAt: status === 'approved' ? now : null,
       publishedAt: status === 'approved' ? now : null,
     });
-    return this.repo.save(tpl);
+    const saved = await this.repo.save(tpl);
+    return this.attachPriceFrom(saved);
   }
 
   async update(
     id: string,
     dto: Partial<CreateTemplateDto>,
-  ): Promise<DesignTemplate> {
+  ): Promise<TemplateResponse> {
     const tpl = await this.repo.findOneBy({ id });
     if (!tpl) throw new NotFoundException('Template not found');
 
@@ -272,17 +366,25 @@ export class TemplatesService {
       ...(dto.productId !== undefined && { productId: dto.productId ?? null }),
       ...(dto.width !== undefined && { width: dto.width ?? null }),
       ...(dto.height !== undefined && { height: dto.height ?? null }),
+      ...(dto.priceFromOverride !== undefined && {
+        priceFromOverride:
+          dto.priceFromOverride === null
+            ? null
+            : String(dto.priceFromOverride),
+      }),
       ...(dto.status !== undefined &&
         TEMPLATE_STATUSES.includes(dto.status) && { status: dto.status }),
     });
-    return this.repo.save(tpl);
+    const saved = await this.repo.save(tpl);
+    return this.attachPriceFrom(saved);
   }
 
-  async setFeatured(id: string, featured: boolean): Promise<DesignTemplate> {
+  async setFeatured(id: string, featured: boolean): Promise<TemplateResponse> {
     const tpl = await this.repo.findOneBy({ id });
     if (!tpl) throw new NotFoundException('Template not found');
     tpl.featured = featured;
-    return this.repo.save(tpl);
+    const saved = await this.repo.save(tpl);
+    return this.attachPriceFrom(saved);
   }
 
   async remove(id: string): Promise<{ id: string; deleted: true }> {
