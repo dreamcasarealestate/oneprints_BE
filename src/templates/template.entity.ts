@@ -79,6 +79,50 @@ export class DesignTemplate {
   @Column({ type: 'int', nullable: true })
   height: number | null;
 
+  /**
+   * Optional **per-template side override**. When set, the
+   * customer studio + admin authoring studio use this list
+   * verbatim — overrides both the bound product's `printSides`
+   * and the category's `defaultSides`. Use cases:
+   *   - Drinkware template that only authors the wrap (not the
+   *     product's `front`/`back` blank IDs).
+   *   - Apparel template that targets a single sleeve.
+   *   - Library templates that ship without a product binding
+   *     but want a side list richer than the category default.
+   *
+   * `null` (the common case) means "inherit per resolution rule":
+   * bound product's `printSides` → category's `defaultSides` →
+   * default `[{id:'front',label:'Front'}]`. The BE computes the
+   * resolved list as `effectiveSides` on every response so the FE
+   * never re-implements this rule.
+   *
+   * Each row stores a stable `id` (matches `data.side` on the
+   * canvas + slot/variant `side` metadata) plus a human `label`.
+   */
+  @Column('jsonb', { nullable: true })
+  sides: { id: string; label: string }[] | null;
+
+  /**
+   * VistaPrint-style **template-level custom sections** — extra
+   * structured form data the customer must fill when ordering
+   * (e.g. "Engraving message", "Gift wrap option", "Preferred
+   * proofing turnaround"). Mirrors `Product.customSections` so the
+   * admin can reuse `CustomSectionsBuilder` verbatim.
+   *
+   * Each section carries one or more fields (`text`, `textarea`,
+   * `number`, `select`, …) with `visibility` (`storefront` /
+   * `admin` / `both`) and `required` flags. The storefront
+   * renders `visibility === 'storefront' | 'both'` sections in
+   * the studio + design review; the admin order detail panel
+   * renders every section grouped by id.
+   *
+   * Stored as a jsonb array — the BE doesn't introspect the
+   * payload so the schema can grow (new field kinds, conditional
+   * visibility, etc.) without a DTO churn.
+   */
+  @Column('jsonb', { default: [] })
+  customSections: Record<string, unknown>[];
+
   @Column('text', { array: true, default: [] })
   tags: string[];
 
@@ -194,6 +238,43 @@ export class DesignTemplate {
      */
     thumbnailUrl?: string | null;
     /**
+     * Optional **per-side preview images** keyed by side id
+     * (`{ front: "...", back: "..." }`). Authored from the
+     * admin studio when a single variant ships **different
+     * artwork per side** — e.g. a Wine Red business card whose
+     * front uses photo A and whose back uses photo B. The
+     * customer studio switches to the matching image when the
+     * customer flips sides; the storefront card still uses
+     * {@link thumbnailUrl} so a single preview is shown.
+     */
+    thumbnailUrlBySide?: Record<string, string | null> | null;
+    /**
+     * **Canvas-rendered preview** — populated automatically by
+     * the admin studio every time the admin captures the canvas
+     * (Capture canvas / Use on canvas / template Save). Stored
+     * as a base64 PNG so the storefront can render the
+     * VistaPrint-style "Company Name / Job Title" preview
+     * without re-rasterising the canvas at request time.
+     *
+     * Preferred over {@link thumbnailUrl} on every card display
+     * surface (PDP rail, browse grid, editor templates panel,
+     * change-template drawer, side-change sheet) because it's
+     * an actual snapshot of the canvas with all slot
+     * placeholders composited on top of the variant's
+     * background — what the customer actually sees in the
+     * editor — instead of just the raw uploaded background.
+     */
+    renderedThumbnailUrl?: string | null;
+    /**
+     * Optional **per-side canvas-rendered previews** keyed by
+     * side id — mirrors {@link thumbnailUrlBySide} but for the
+     * auto-captured canvas snapshots. The customer studio
+     * picks the active side's rendered snapshot when applying
+     * the variant so each side shows its own "Company Name /
+     * Job Title" preview instead of an inert background photo.
+     */
+    renderedThumbnailUrlBySide?: Record<string, string | null> | null;
+    /**
      * Optional **per-variant curated canvas state**. When the
      * admin authored a hand-tuned canvas for this colour (e.g.
      * the wine version uses different ornaments than the navy
@@ -203,6 +284,12 @@ export class DesignTemplate {
      * `canvasState` — flat Fabric scene, `{ state }` wrapper, or
      * multi-side `{ sideStates }` wrapper are all accepted by the
      * studio loader.
+     *
+     * For multi-side authoring, this column carries the
+     * `{ sideStates: { front, back, ... } }` envelope so each
+     * side can have its own canvas snapshot (image + slot
+     * layers). The customer studio picks the active side's
+     * entry when applying the variant.
      */
     canvasState?: Record<string, unknown> | null;
     /**

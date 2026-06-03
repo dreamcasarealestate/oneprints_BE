@@ -6,6 +6,7 @@ import { TemplatesService } from './templates.service';
 import { TemplatesController } from './templates.controller';
 import { TemplateCategoriesService } from './template-categories.service';
 import { TemplateCategoriesController } from './template-categories.controller';
+import { TemplateSchemaBootstrapService } from './template-schema-bootstrap.service';
 import { Product } from '../catalogue/product.entity';
 
 @Module({
@@ -15,7 +16,19 @@ import { Product } from '../catalogue/product.entity';
   // keeps the "From ₹X" pill resolved server-side without an N+1
   // and without a circular dependency on CatalogueModule.
   imports: [TypeOrmModule.forFeature([DesignTemplate, TemplateCategory, Product])],
-  providers: [TemplatesService, TemplateCategoriesService],
+  // `TemplateSchemaBootstrapService` runs in `onModuleInit` to
+  // add columns we shipped after the table was first created
+  // (sides, customSections, priceFromOverride, width/height).
+  // Idempotent + safe to re-run on every boot — fixes the
+  // `column "sides" does not exist` crash on environments where
+  // TypeORM's `synchronize: true` didn't catch up (Neon /
+  // Supabase pooled connections occasionally drop multi-clause
+  // ALTER TABLEs silently).
+  providers: [
+    TemplatesService,
+    TemplateCategoriesService,
+    TemplateSchemaBootstrapService,
+  ],
   controllers: [TemplatesController, TemplateCategoriesController],
   exports: [TemplatesService, TemplateCategoriesService],
 })

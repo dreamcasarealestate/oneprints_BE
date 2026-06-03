@@ -45,7 +45,16 @@ export class TemplatesController {
     @Query('featured') featured?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    // Shape filter — VistaPrint-style "square PDP only shows square
+    // templates". We parse to a positive number and ignore garbage
+    // input so a malformed query never breaks the rail.
+    @Query('aspectRatio') aspectRatio?: string,
+    @Query('aspectRatioTolerance') aspectRatioTolerance?: string,
   ) {
+    const parsedAspect = aspectRatio ? parseFloat(aspectRatio) : NaN;
+    const parsedTolerance = aspectRatioTolerance
+      ? parseFloat(aspectRatioTolerance)
+      : NaN;
     return this.svc.list({
       categorySlug,
       categoryId,
@@ -59,6 +68,14 @@ export class TemplatesController {
         featured === 'true' ? true : featured === 'false' ? false : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
+      aspectRatio:
+        Number.isFinite(parsedAspect) && parsedAspect > 0
+          ? parsedAspect
+          : undefined,
+      aspectRatioTolerance:
+        Number.isFinite(parsedTolerance) && parsedTolerance > 0
+          ? parsedTolerance
+          : undefined,
     });
   }
 
