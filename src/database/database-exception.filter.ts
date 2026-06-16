@@ -1,11 +1,11 @@
 import {
   ArgumentsHost,
   Catch,
-  ExceptionFilter,
   HttpException,
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { BaseExceptionFilter, HttpAdapterHost } from '@nestjs/core';
 import type { Request, Response } from 'express';
 
 /**
@@ -33,6 +33,9 @@ const TRANSIENT_PG_ERROR_PATTERNS: readonly RegExp[] = [
   /ETIMEDOUT/i,
   /ENETUNREACH/i,
   /EAI_AGAIN/i,
+  /Query read timeout/i,
+  /statement timeout/i,
+  /canceling statement due to statement timeout/i,
   /read ECONNRESET/i,
 ];
 
@@ -75,17 +78,21 @@ function isTransientDatabaseError(err: unknown): boolean {
  * bugs.
  */
 @Catch()
-export class DatabaseExceptionFilter implements ExceptionFilter {
+export class DatabaseExceptionFilter extends BaseExceptionFilter {
   private readonly logger = new Logger(DatabaseExceptionFilter.name);
   // Last time we warned about a transient DB error. Throttles log
   // output so a wake-up storm produces ONE warning line, not 20.
   private lastWarnAt = 0;
   private readonly WARN_THROTTLE_MS = 5_000;
 
+  constructor(adapterHost: HttpAdapterHost) {
+    super(adapterHost.httpAdapter);
+  }
+
   catch(exception: unknown, host: ArgumentsHost) {
     if (!isTransientDatabaseError(exception)) {
       // Not ours — re-throw so the default Nest filter logs / formats it.
-      throw exception;
+      return super.catch(exception, host);
     }
 
     const ctx = host.switchToHttp();
