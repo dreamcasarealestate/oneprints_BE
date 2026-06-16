@@ -121,6 +121,26 @@ export class CartService {
     cart.grandTotal = this.money(Math.max(grandTotal, 0));
   }
 
+  private async persistCartShell(cart: Cart): Promise<void> {
+    await this.cartRepo.update(
+      { id: cart.id },
+      {
+        currency: cart.currency,
+        couponCode: cart.couponCode,
+        subTotal: cart.subTotal,
+        discountTotal: cart.discountTotal,
+        couponDiscount: cart.couponDiscount,
+        taxTotal: cart.taxTotal,
+        shippingTotal: cart.shippingTotal,
+        feeTotal: cart.feeTotal,
+        grandTotal: cart.grandTotal,
+        shippingDetails: cart.shippingDetails,
+        billingDetails: cart.billingDetails,
+        meta: cart.meta,
+      },
+    );
+  }
+
   /**
    * Confirms the catalogue product still exists and is purchasable
    * before letting the line into the cart. Skipped silently when the
@@ -280,7 +300,7 @@ export class CartService {
     if (!cart) throw new NotFoundException('Cart disappeared mid-update');
     await this.refreshLivePrices(cart);
     this.recomputeCartTotals(cart);
-    await this.cartRepo.save(cart);
+    await this.persistCartShell(cart);
     return cart;
   }
 
@@ -459,7 +479,7 @@ export class CartService {
     cart.couponCode = null;
     cart.couponDiscount = '0.00';
     this.recomputeCartTotals(cart);
-    await this.cartRepo.save(cart);
+    await this.persistCartShell(cart);
     return this.refreshAndSave(cart.id);
   }
 
@@ -524,7 +544,7 @@ export class CartService {
 
     if (dto.couponCode !== undefined) {
       cart.couponCode = dto.couponCode || null;
-      await this.cartRepo.save(cart);
+      await this.persistCartShell(cart);
     }
 
     return this.refreshAndSave(cart.id);
@@ -545,7 +565,7 @@ export class CartService {
       cart.meta = { ...(cart.meta ?? {}), ...(dto.meta ?? {}) };
     }
 
-    await this.cartRepo.save(cart);
+    await this.persistCartShell(cart);
     return this.refreshAndSave(cart.id);
   }
 

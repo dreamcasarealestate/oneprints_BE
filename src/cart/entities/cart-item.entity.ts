@@ -123,7 +123,11 @@ export class CartItem {
   @Column({ type: 'uuid', nullable: true })
   templateId: string | null;
 
-  @ManyToOne(() => DesignTemplate, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => DesignTemplate, {
+    nullable: true,
+    onDelete: 'SET NULL',
+    persistence: false,
+  })
   @JoinColumn({ name: 'templateId' })
   template: DesignTemplate | null;
 
