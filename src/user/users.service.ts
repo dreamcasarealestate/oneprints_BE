@@ -28,7 +28,23 @@ export type CreateUserInternal = {
   passwordHash: string;
   userKind: UserKind;
   branchId?: string | null;
+  createdByUserId?: string | null;
+  createdByDisplayName?: string | null;
+  updatedByUserId?: string | null;
+  updatedByDisplayName?: string | null;
 };
+
+function displayNameForActor(user: User): string {
+  const parts = [user.firstName, user.lastName].filter(
+    (part): part is string =>
+      typeof part === 'string' && part.trim().length > 0,
+  );
+  const joined = parts.join(' ').trim();
+  if (joined) return joined.slice(0, 200);
+  if (user.email?.trim()) return user.email.trim().slice(0, 200);
+  if (user.username?.trim()) return user.username.trim().slice(0, 200);
+  return 'Admin';
+}
 
 @Injectable()
 export class UsersService {
@@ -216,6 +232,7 @@ export class UsersService {
     const kind = dto.userKind ?? UserKind.STAFF;
     this.assertCreatableUserKind(actor, kind);
     const branchId = this.resolveTargetBranchIdForWrite(actor, dto.branchId);
+    const actorName = displayNameForActor(actor);
 
     const user = await this.create({
       firstName: dto.firstName.trim(),
@@ -226,6 +243,10 @@ export class UsersService {
       passwordHash: await bcrypt.hash(dto.password, 10),
       userKind: kind,
       branchId,
+      createdByUserId: actor.id,
+      createdByDisplayName: actorName,
+      updatedByUserId: actor.id,
+      updatedByDisplayName: actorName,
     });
 
     return this.toSafeUser(user);
@@ -320,6 +341,10 @@ export class UsersService {
         'roleId',
         'branchId',
         'passwordHash',
+        'createdByUserId',
+        'createdByDisplayName',
+        'updatedByUserId',
+        'updatedByDisplayName',
         'isActive',
         'deactivatedAt',
         'deletionScheduledAt',
@@ -485,6 +510,14 @@ export class UsersService {
       user.branchId = dto.branchId;
     }
 
+    if (dto.isActive !== undefined) {
+      user.isActive = dto.isActive;
+      user.deactivatedAt = dto.isActive ? null : (user.deactivatedAt ?? new Date());
+      if (dto.isActive) {
+        user.deletionScheduledAt = null;
+      }
+    }
+
     if (dto.password) {
       const withPassword = await this.findByEmailWithPassword(user.email);
       if (!withPassword) {
@@ -493,6 +526,9 @@ export class UsersService {
       withPassword.passwordHash = await bcrypt.hash(dto.password, 10);
       await this.usersRepo.save(withPassword);
     }
+
+    user.updatedByUserId = actor.id;
+    user.updatedByDisplayName = displayNameForActor(actor);
 
     const saved = await this.usersRepo.save(user);
     return this.toSafeUser(saved);

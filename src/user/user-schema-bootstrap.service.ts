@@ -20,6 +20,16 @@ type RequiredColumn = {
 };
 
 const REQUIRED_COLUMNS: RequiredColumn[] = [
+  { name: 'createdByUserId', ddl: '"createdByUserId" uuid NULL' },
+  {
+    name: 'createdByDisplayName',
+    ddl: '"createdByDisplayName" varchar(200) NULL',
+  },
+  { name: 'updatedByUserId', ddl: '"updatedByUserId" uuid NULL' },
+  {
+    name: 'updatedByDisplayName',
+    ddl: '"updatedByDisplayName" varchar(200) NULL',
+  },
   { name: 'isActive', ddl: '"isActive" boolean NOT NULL DEFAULT true' },
   { name: 'deactivatedAt', ddl: '"deactivatedAt" timestamptz NULL' },
   {

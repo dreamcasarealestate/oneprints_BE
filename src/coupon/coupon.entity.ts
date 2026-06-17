@@ -33,7 +33,7 @@ export class Coupon {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   maxDiscount: number | null;
 
-  /** 0 = unlimited */
+/** 0 = unlimited */
   @Column({ default: 0 })
   maxUses: number;
 
@@ -57,6 +57,18 @@ export class Coupon {
   /** Restrict to specific category slugs (empty = all categories) */
   @Column('text', { array: true, default: [] })
   categorySlugs: string[];
+
+  @Column({ type: 'uuid', nullable: true })
+  createdByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  createdByDisplayName: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  updatedByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  updatedByDisplayName: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsBoolean,
   IsEnum,
   IsOptional,
   IsString,
@@ -56,4 +57,9 @@ export class UpdateUserDto {
   @IsOptional()
   @IsUUID()
   branchId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Activate or deactivate the account.' })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

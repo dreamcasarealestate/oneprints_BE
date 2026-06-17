@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { Coupon } from './coupon.entity';
 import { CouponRedemption } from './coupon-redemption.entity';
 import { CreateCouponDto } from './dto/create-coupon.dto';
+import { User } from '../user/user.entity';
 
 export type ValidateCouponResult = {
   valid: boolean;
@@ -15,6 +16,24 @@ export type ValidateCouponResult = {
   discountAmount?: number;
   message?: string;
 };
+
+function displayNameForActor(user: User): string {
+  const u = user as User & {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    username?: string;
+  };
+  const parts = [u.firstName, u.lastName].filter(
+    (part): part is string =>
+      typeof part === 'string' && part.trim().length > 0,
+  );
+  const joined = parts.join(' ').trim();
+  if (joined) return joined.slice(0, 200);
+  if (u.email?.trim()) return u.email.trim().slice(0, 200);
+  if (u.username?.trim()) return u.username.trim().slice(0, 200);
+  return 'Admin';
+}
 
 @Injectable()
 export class CouponsService {
@@ -37,7 +56,8 @@ export class CouponsService {
     return c;
   }
 
-  create(dto: CreateCouponDto): Promise<Coupon> {
+  create(dto: CreateCouponDto, actor?: User): Promise<Coupon> {
+    const displayName = actor ? displayNameForActor(actor) : null;
     const coupon = this.couponRepo.create({
       code: dto.code.toUpperCase().trim(),
       description: dto.description ?? null,
@@ -51,11 +71,19 @@ export class CouponsService {
       isActive: dto.isActive ?? true,
       productIds: dto.productIds ?? [],
       categorySlugs: dto.categorySlugs ?? [],
+      createdByUserId: actor?.id ?? null,
+      createdByDisplayName: displayName,
+      updatedByUserId: actor?.id ?? null,
+      updatedByDisplayName: displayName,
     });
     return this.couponRepo.save(coupon);
   }
 
-  async update(id: string, dto: Partial<CreateCouponDto>): Promise<Coupon> {
+  async update(
+    id: string,
+    dto: Partial<CreateCouponDto>,
+    actor?: User,
+  ): Promise<Coupon> {
     const coupon = await this.getOne(id);
     if (dto.code !== undefined) coupon.code = dto.code.toUpperCase().trim();
     if (dto.description !== undefined) coupon.description = dto.description;
@@ -69,6 +97,10 @@ export class CouponsService {
     if (dto.isActive !== undefined) coupon.isActive = dto.isActive;
     if (dto.productIds !== undefined) coupon.productIds = dto.productIds;
     if (dto.categorySlugs !== undefined) coupon.categorySlugs = dto.categorySlugs;
+    if (actor) {
+      coupon.updatedByUserId = actor.id;
+      coupon.updatedByDisplayName = displayNameForActor(actor);
+    }
     return this.couponRepo.save(coupon);
   }
 

@@ -100,6 +100,10 @@ export class AdminService {
     return this.designers.deleteDesigner(id);
   }
 
+  updateDesigner(id: string, dto: any) {
+    return this.designers.updateDesignerProfile(id, dto);
+  }
+
   /**
    * Submit a marketplace designer application from the admin portal (ops).
    *

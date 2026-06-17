@@ -120,6 +120,17 @@ export class AdminController {
     return this.admin.setDesignerStatus(id, 'suspended', user);
   }
 
+  @Patch('designers/:id')
+  @Roles(...DESIGNER_APPROVAL_ROLES)
+  @ApiOperation({ summary: 'Update designer profile details' })
+  @ApiBody({ type: RejectDesignerDto })
+  updateDesigner(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: any,
+  ) {
+    return this.admin.updateDesigner(id, dto);
+  }
+
   @Delete('designers/:id')
   @Roles(...DESIGNER_APPROVAL_ROLES)
   @ApiOperation({ summary: 'Delete designer profile' })
