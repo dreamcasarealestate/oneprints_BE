@@ -59,6 +59,18 @@ export class User {
   @JoinColumn({ name: 'branchId' })
   branch: Branch | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  createdByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  createdByDisplayName: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  updatedByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  updatedByDisplayName: string | null;
+
   @Column({ select: false })
   passwordHash: string;
 

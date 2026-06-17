@@ -60,15 +60,19 @@ export class CouponsController {
   @UseGuards(RolesGuard)
   @Roles(...CATALOGUE_ADMIN_ROLES)
   @Post()
-  create(@Body() dto: CreateCouponDto) {
-    return this.svc.create(dto);
+  create(@Body() dto: CreateCouponDto, @CurrentUser() user: User) {
+    return this.svc.create(dto, user);
   }
 
   @UseGuards(RolesGuard)
   @Roles(...CATALOGUE_ADMIN_ROLES)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: Partial<CreateCouponDto>) {
-    return this.svc.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: Partial<CreateCouponDto>,
+    @CurrentUser() user: User,
+  ) {
+    return this.svc.update(id, dto, user);
   }
 
   @UseGuards(RolesGuard)
