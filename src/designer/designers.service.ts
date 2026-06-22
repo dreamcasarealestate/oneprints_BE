@@ -22,6 +22,7 @@ import { UsersService } from '../user/users.service';
 import { DesignerProfileStatus } from './designer.entity';
 import { UserKind } from '../user/user-kind.enum';
 import { isValidApparelDesignerToken } from './apparel-designer-taxonomy';
+import { UpdateDesignerAdminDto } from './dto/update-designer-admin.dto';
 
 @Injectable()
 export class DesignersService {
@@ -303,12 +304,15 @@ export class DesignersService {
     return this.designerRepo.save(d);
   }
 
-  async updateDesignerProfile(designerId: string, dto: UpdateDesignerProfileDto) {
+  async updateDesignerProfile(
+    designerId: string,
+    dto: UpdateDesignerAdminDto,
+  ) {
     const d = await this.designerRepo.findOne({ where: { id: designerId } });
     if (!d) throw new NotFoundException('Designer not found');
     if (dto.displayName !== undefined) d.displayName = dto.displayName.trim();
-    if (dto.city !== undefined) d.city = dto.city?.trim() ?? null;
-    if (dto.bio !== undefined) d.bio = dto.bio?.trim() ?? null;
+    if (dto.city !== undefined) d.city = dto.city.trim() || null;
+    if (dto.bio !== undefined) d.bio = dto.bio.trim() || null;
     if (dto.specializations !== undefined) {
       this.assertApparelSpecializations(dto.specializations);
       d.specializations = dto.specializations;
@@ -320,7 +324,8 @@ export class DesignersService {
       d.yearsExperience = dto.yearsExperience;
     if (dto.availability !== undefined) d.availability = dto.availability;
     if (dto.turnaroundText !== undefined)
-      d.turnaroundText = dto.turnaroundText?.trim() ?? null;
+      d.turnaroundText = dto.turnaroundText.trim() || null;
+    if (dto.verified !== undefined) d.verified = dto.verified;
     return this.designerRepo.save(d);
   }
 

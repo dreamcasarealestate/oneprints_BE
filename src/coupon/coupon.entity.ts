@@ -33,10 +33,9 @@ export class Coupon {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   maxDiscount: number | null;
 
-/** 0 = unlimited */
+  /** 0 = unlimited */
   @Column({ default: 0 })
   maxUses: number;
-
   @Column({ default: 0 })
   usedCount: number;
 

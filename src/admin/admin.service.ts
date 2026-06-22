@@ -12,6 +12,7 @@ import { Payout } from '../payout/payout.entity';
 import { AuditLog } from '../audit/audit-log.entity';
 import { CreatePayoutDto } from './dto/create-payout.dto';
 import { DesignerProfileStatus } from '../designer/designer.entity';
+import { UpdateDesignerAdminDto } from '../designer/dto/update-designer-admin.dto';
 
 @Injectable()
 export class AdminService {
@@ -100,7 +101,7 @@ export class AdminService {
     return this.designers.deleteDesigner(id);
   }
 
-  updateDesigner(id: string, dto: any) {
+  updateDesigner(id: string, dto: UpdateDesignerAdminDto) {
     return this.designers.updateDesignerProfile(id, dto);
   }
 

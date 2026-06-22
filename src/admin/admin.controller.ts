@@ -29,6 +29,7 @@ import { AdminService } from './admin.service';
 import { CatalogueService } from '../catalogue/catalogue.service';
 import { RejectDesignerDto } from '../designer/dto/reject-designer.dto';
 import { ApplyDesignerDto } from '../designer/dto/apply-designer.dto';
+import { UpdateDesignerAdminDto } from '../designer/dto/update-designer-admin.dto';
 import { BulkImportProductsDto } from './dto/bulk-import-products.dto';
 import { CreatePayoutDto } from './dto/create-payout.dto';
 import { User } from '../user/user.entity';
@@ -123,10 +124,10 @@ export class AdminController {
   @Patch('designers/:id')
   @Roles(...DESIGNER_APPROVAL_ROLES)
   @ApiOperation({ summary: 'Update designer profile details' })
-  @ApiBody({ type: RejectDesignerDto })
+  @ApiBody({ type: UpdateDesignerAdminDto })
   updateDesigner(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() dto: any,
+    @Body() dto: UpdateDesignerAdminDto,
   ) {
     return this.admin.updateDesigner(id, dto);
   }
